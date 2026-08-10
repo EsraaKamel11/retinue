@@ -19,7 +19,8 @@ contract enumerated in section 6.
 
 **Version pins.** `claude-agent-sdk 0.2.130` (bundled CLI 2.1.222) · `pydantic-ai` /
 `pydantic-evals` `2.23.0` · `psycopg[binary] >=3.1` · Python >=3.11. Framework claims in this spec
-carry these versions; a claim without its version is undated and invalid here.
+carry these versions; a claim without its version is undated and invalid here. Floors live in the
+manifest; capture stamps record exact resolved versions.
 
 ---
 
@@ -50,7 +51,8 @@ a verdict that establishes a violation is an EXCEPTION; a flag-for-review is UNV
 ### 2.1 Default lane (all CI, fresh clone)
 
 `pytest -q` passes on a fresh clone: **no daemon, no network, no key** - deterministic and
-dependency-free. It contains:
+dependency-free. (Constructing SDK options offline requires the SDK *package*, which is therefore a
+default dependency; it spawns nothing at import or construction time.) It contains:
 
 - **Options-shape tests**: the orchestrator topology asserted AS DATA - the agents dict, each
   specialist's tool roster, `permissionMode`, `background=False` on every `AgentDefinition`, the
@@ -69,14 +71,18 @@ pulls, wait-for-ready races, and port collisions - none deterministic. So:
 
 - `RETINUE_PG_DSN` set: the **same contract tests** run against real Postgres, plus DB-enforcement
   tests that only a real database earns - unique/idempotency constraints, the append-only trigger,
-  concurrent append, and the query-plan assertions (2.4).
+  concurrent append, and the query-plan assertions: the projection's hot query runs over an
+explicitly named index (`idx_touchpoints_investor_ts` - named so a test can match it), and a plan
+test asserts that name appears in the `EXPLAIN` output, over a fixture sized so the planner
+actually chooses it (a ten-row table seq-scans regardless, and the assert must fail on a seq
+scan, never accept one).
 - `RETINUE_PG_DSN` unset: skip, with a printed reason.
 - **CI negative control:** one ubuntu job runs `services: postgres` with `RETINUE_PG_REQUIRED=1`,
   which turns skip into FAIL. A lane that can silently skip forever is a vacuous gate; this makes
   vacuity a red build.
-- The Postgres image tag is pinned exactly, matching the Supabase Postgres major. One idempotent
+- The Postgres image tag is pinned exactly, matching the managed-Postgres target's major version. One idempotent
   `schema.sql` applied by `ledger.bootstrap(dsn)` is the whole migration story - which is also the
-  managed-Postgres story, since the schema file applies unchanged there.
+  managed-Postgres story, since the one schema file applies unchanged on the managed target.
 - Rejected: testcontainers (adds a Docker-API dependency and still requires a daemon),
   pytest-postgresql (host `initdb`/`pg_ctl` binaries; poor Windows story). `docker-compose.yml` is
   one documented way to provide the DSN, not the harness contract.
@@ -88,10 +94,12 @@ Live runs are **capture runs**: transcripts and payloads recorded once, stamped
 
 The **P1 capture smoke** is the first: orchestrator plus the research subagent, with no send tool
 existing anywhere in the session. It produces the canonical fixtures for: real hook payloads from
-subagent tool calls (`agent_type` populated); how `"ask"` surfaces in a session; the spawn tool's
+subagent tool calls (`agent_type` populated); the spawn tool's
 naming as it actually appears in `system:init` and `tool_use` blocks; and the background-stripping
 evidence pair - one run with `background` unset (tool list silently stripped), one with
-`background: False` (tool offered).
+`background: False` (tool offered). The `"ask"` surfacing fixture is deliberately NOT this smoke's
+to produce - no send tool exists in its session, so nothing asks; it is captured by the first
+session where one does (the P4 demo, or the flag-gated headless variant).
 
 **Judge protocol:** judge once live (keyed, manual), freeze the verdicts, replay forever. The LLM
 judge never runs *in* CI, on determinism grounds.
@@ -117,21 +125,28 @@ ignored kwarg yields a green suite that tests nothing.
 
 | Agent | mode | tools | background | model tier | never |
 |---|---|---|---|---|---|
-| orchestrator | `default` | spawn tool only (both current and legacy names listed as data; which binds is runtime-only) | - | standard | calls no external surface; drafts nothing; **holds no specialist tool** |
-| research | inherit | fixture-read tools only | **False** | cheaper tier | **no outbound tool exists in its session** |
-| drafting | inherit | ledger-read only | **False** | cheaper tier | no send tool; output goes to review |
-| conversation | inherit | send tool (gated) | **False** | standard | send never executes without hook + chokepoint |
+| orchestrator | `default` | spawn tool only (both current and legacy names listed as data; which binds is runtime-only) | - | `sonnet-tier` | calls no external surface; drafts nothing; **holds no specialist tool** |
+| research | inherit | fixture-read tools only | **False** | `haiku-tier` | **no outbound tool exists in its session** |
+| drafting | inherit | ledger-read only | **False** | `haiku-tier` | no send tool; output goes to review |
+| conversation | inherit | send tool (gated) | **False** | `sonnet-tier` | send never executes without hook + chokepoint |
 
+- Tier names are the imported `MODEL_STRENGTH` vocabulary (`haiku-tier` / `sonnet-tier` /
+  `opus-tier` - anything else raises). "The drafter", for the checker-ordering guarantee, is the
+  drafting specialist's tier.
 - The checker runs a tier at least as strong as the drafter; the imported
   `assert_checker_not_weaker` enforces the ordering at construction, and the table above makes the
   imported guarantee visible as data.
 - **One** parent-registered `PreToolUse` hook, keyed on `agent_type`, treating `None` as
   main-thread. It carries the imported deterministic lane plus routing: `"ask"` on outward sends.
-  `"defer"` appears only in a flag-gated headless variant and is tiered live-captured-at-version.
+  `"defer"` appears only in a flag-gated headless variant and stays source-cited at 0.2.130 until
+that variant captures it.
 - The orchestrator's mode is `default` - of the six permission modes, three are sticky (a
   subagent's own `permissionMode` is ignored under them, not narrowed), so a permissive orchestrator
   would erase permission mode as a per-specialist lever. Source-cited at 0.2.130.
-- Routing helpers are plain Python scoped strictly to the hook's `agent_type` -> decision table.
+- The hook's decision table, complete: `agent_type` absent -> main thread, allow · `research` /
+  `drafting` -> allow (their rosters contain no outward tool to gate) · `conversation` + send tool
+  -> `"ask"` · any unrecognised `agent_type` -> `"ask"` (unknown fails toward the human).
+- Routing helpers are plain Python scoped strictly to that table.
   Task routing belongs to the live-lane model via `AgentDefinition.description`; the default lane
   drives specialists directly and needs no router.
 - Each specialist is **one module emitting both artifacts** - the SDK `AgentDefinition` and the
@@ -169,8 +184,10 @@ they are edited together.
 
 ### 4.2 Draft
 
-The imported boundary library's own `Draft` contract, unchanged: body, cited fields, recipient
-jurisdiction, recipient domain, tool name - populated from the ledger's identity record (4.4).
+The imported boundary library's own `Draft` contract, unchanged - six fields: thread, body,
+cited fields, recipient jurisdiction, recipient domain, tool name. Jurisdiction and domain are
+populated from the ledger's identity record (5.1); the thread field is why 4.3 composes rather
+than siblings.
 
 ### 4.3 ConversationTurn
 
@@ -224,10 +241,17 @@ sharpest limit here: with nothing feeding it, `sent_count` defaults to a permiss
 re-attempt is unguarded. This projection closes that published limit - the fleet does not merely
 import the boundary, it completes it.
 
+All six `ActContext` fields are sourced: `sent_count` from touchpoints, `consented_jurisdictions`
+from identity, the approval token from the ask flow, `granted_tools` from the topology roster,
+`tier` from the ladder decision (defaulting to the most restrictive), `send_cap` from
+configuration.
+
 **Projection tri-state:** no-touchpoints (a true zero for a new investor) and
 projection-unavailable (the store could not be read) are different facts and carry different types
-(`0` vs `None`). **Unavailable fails closed at the chokepoint** - the highest-restriction tier
-until the store is back. Zero-because-new and zero-because-the-query-failed must never reach the
+(`0` vs `None`). **Unavailable fails closed at the chokepoint**, by a named mechanism: the projection returns a
+sentinel context (no approval token, most-restrictive tier, `sent_count = send_cap`) producing a
+single denial class, `projection_unavailable`, with its own reviewer-facing text - never a
+permissive default, and never a denial that masquerades as a policy judgment. Zero-because-new and zero-because-the-query-failed must never reach the
 guard as the same integer, because the second one opens it.
 
 ### 5.3 The rendered block
@@ -240,7 +264,7 @@ The record projects into a bounded context block that rides in every prompt:
   arriving through the most-trusted component; the silent alternative is the agent confidently
   reading back null.
 - The block's **section header text is a machine-checked contract** - the control eval's stripper
-  matches on it (7.3).
+  matches on it (7.1).
 - Conversation summarization never touches the record or the block; the compaction boundary is
   structural, not prompt-level.
 
@@ -269,11 +293,11 @@ similarity must carry them, and the metric must notice when it does not.
 
 ## 6. The boundary (`boundary/`)
 
-Named `boundary/`, not `gates/`: `retinue.gates` beside `chaperone.gates` would shadow in prose and
-imports.
+Named `boundary/`, not `gates/`: two packages called `gates` collide in prose and in a reader's
+head, even though imports would resolve.
 
-- Owns constructing what the imported `guarded_call` requires: the `Gateway` over the audit store,
-  and the keyword-only review queues.
+- Owns constructing what the imported `guarded_call` requires: the `Gateway` over the audit
+  store, the tool registry, and the keyword-only review queues.
 - **The send tool's body calls the imported `guarded_call`** - the checker runs at the chokepoint,
   never in the hook. Denials are terminal via the imported `Handoff`; there is no resume round-trip
   (the library documents the framework's approval-resume path substituting arguments before
@@ -286,8 +310,9 @@ imports.
 - **P3's review surface calls the imported full-lane `pre_tool_use` as a pre-flight**, annotating
   every draft with its would-be verdict before the reviewer sees it - the full predicate set,
   checker included, with no execution. The fleet is that function's first real caller.
-- **Review routing is a two-signal disjunction**: checker denial OR parity/integration failure
-  routes to human. Model confidence deliberately routes nothing - following the corpus's own
+- **Review routing is a two-signal disjunction**: checker denial OR pre-flight failure (the
+  annotation errored or produced no verdict) routes to human. Parity tests are CI checks, not a
+  runtime signal. Model confidence deliberately routes nothing - following the corpus's own
   escalation design whose trigger list excludes the model's self-rated confidence. (Named as
   two-signal; a third signal would be reviewer disagreement, which exists only when a second
   reviewer does.)
@@ -307,9 +332,21 @@ contract the fleet depends on (the library never published one):
 
 `chaperone.gates.hook` (`pre_tool_use`, `guarded_call`) · `chaperone.gates.sdk_callback`
 (`pre_tool_use_deny`) · `chaperone.gates.handoff` · `chaperone.gates.checker` (transport seam,
-`assert_checker_not_weaker`) · `chaperone.gates.queues` · `chaperone.policy.types` (`Draft`,
-`ActContext`, verdict types) · `chaperone.matching.*` (filters, relationship, rank) ·
-`chaperone.audit.*` (store, gateway, chain).
+`assert_checker_not_weaker`, and the verdict types: `Verdict`, `FlagForReview`, `CheckerResult`,
+`CheckerUnavailable`) · `chaperone.gates.queues` · `chaperone.policy.types` (`Draft`, `Record`,
+`Decision`, `Finding`, `ViolationClass`, `Disposition`) · `chaperone.policy.act_classes`
+(`ActContext`) · `chaperone.matching.*` (filters, relationship, rank) · `chaperone.audit.*`
+(store, gateway, chain). Verified against the wheel's source tree; `ActContext` lives in
+`act_classes`, not `types`, and the library's own hook imports it from there.
+
+### 6.2 Repo layout
+
+`src/retinue/{orchestration,specialists,ledger,matching,boundary,evals}` · `fixtures/` (frozen,
+each carrying a `meta.captured` stamp) · `synth/` · `vendor/` (the wheel + provenance) ·
+`schema.sql` · `tests/`. **The hook module lives at `boundary/hook.py`** - boundary owns every
+`chaperone.gates` import, and orchestration registers the hook by importing it *from boundary* -
+which is what keeps the AST audit's rules single-sourced and greppable. The parity test asserts
+both specialist artifacts reference the same prompt constant object, not equal strings.
 
 ---
 
@@ -323,7 +360,7 @@ contract the fleet depends on (the library never published one):
 - Judge protocol per 2.3: judge once live, freeze, replay. Calibration then carries real verdict
   provenance, frozen at version.
 
-### 7.3 The block-stripped control
+### 7.1 The block-stripped control
 
 The most-trusted component gets the containment treatment: a control eval re-asks **only the
 questions whose answers depend on block-only fields**, against a context with the block stripped
@@ -331,7 +368,7 @@ questions whose answers depend on block-only fields**, against a context with th
 **At least one must fail.** That failure is the proof the block is load-bearing; a control that
 passes proves the stripper silently did nothing. Judged once live, frozen, replayed.
 
-### 7.4 Provenance limits (stated, both halves)
+### 7.2 Provenance limits (stated, both halves)
 
 Fixtures are hand-authored, not blind-authored like the imported library's corpus - so every number
 this harness produces is a **protocol demonstration**, not a measured claim about model behaviour.
@@ -343,8 +380,10 @@ no real firm's published ranges.
 ## 8. Failure taxonomy
 
 Register discipline: every failure classified to a named mode with a **pre-decided recovery path**,
-terminating in durable human review. Escalation durability is the review queue plus Postgres -
-explicitly not a graph-checkpointer.
+terminating in durable human review. Escalation durability is a Postgres review-queue table -
+the imported in-memory queues are the in-process half only (their own docstring: going out of
+scope takes the escalations with them), so the durable half is fleet-designed. Explicitly not a
+graph-checkpointer.
 
 | Surface | Mode | Response |
 |---|---|---|
@@ -368,9 +407,10 @@ directions and no sentence in this repository leaves that ambiguous.
 - **P1 - research spine.** Orchestration options + the hook (act-lane infrastructure - the boundary
   itself is imported, not built here), the research agent end-to-end through the default lane, the
   ledger (touchpoints, projection, `ActContext` feed - the projection is why the DB harness is
-  justified in P1), fixtures, the AST audit, and the **live capture smoke** (2.3).
-- **P2 - matching.** Matching integration, OutcomeRecord, ranking evaluators, the block-stripped
-  control.
+  justified in P1), **the rendered block** (5.3 - it rides in every prompt, so the research agent
+  needs it), fixtures, the AST audit, and the **live capture smoke** (2.3).
+- **P2 - matching.** Matching integration, OutcomeRecord, ranking evaluators, the judge capture
+  plus frozen-verdict replay (calibration and discrimination), and the block-stripped control.
 - **P3 - drafting + chokepoint.** Drafting agent, send-tool wiring through `guarded_call`, the
   `pre_tool_use` pre-flight review surface, two-signal routing. **The chokepoint's first caller is
   the scripted driver; the first agent caller arrives in P4** - the boundary lands before the agent
@@ -392,9 +432,10 @@ per-investor contact limit over touchpoints is a different object with the same 
 batch APIs and SLA math (no batch workload; replay removes the cost argument) · prompt caching (the
 live lane runs once) · a token counter in the default lane (imports model-dependence; the byte
 budget is lane-independent) · vector-store claim grouping (requires a real embedder in the default
-lane) · MCP configuration (not in the pinned stack) · the CLI-product configuration surface (this
-is an SDK application) · settings allow/deny lists for the send tool (keeps the unresolved
-evaluation-order corner unreachable) · a hand-rolled agent loop (the SDK owns it) · an agentic
+lane) · MCP configuration (shipped by the pinned SDK, deliberately unused here) · the CLI-product configuration surface (this
+is an SDK application) · settings allow/ask rules for the send tool (the unresolved evaluation-order corner is
+hook-allow versus ask-rule; registering none keeps it unreachable) · settings deny lists
+(redundant with tool absence plus the hook) · a hand-rolled agent loop (the SDK owns it) · an agentic
 refinement loop at the review surface (a second live call per draft, against a deliberately human
 surface; the cap principle transfers, the loop does not) · competing-agents (nothing to arbitrate
 among fixed contracts) · async fan-out mechanics (the SDK spawns; the default lane drives directly)
@@ -406,16 +447,17 @@ a graph-checkpointer for escalation durability (the queue plus Postgres is the d
 ## 11. Verification battery (run before the review round, and again before any send)
 
 1. Suite: default lane green on a fresh clone; DSN lane green under `RETINUE_PG_REQUIRED=1`.
-2. Greps, expect zero: em dashes · the two banned certainty adjectives (per the governing plan's language rules) · marketing figures · stale
+2. Greps, expect zero: em dashes · the two banned certainty adjectives (word-bounded; "provenance" is not a hit) · marketing figures · stale
    model ids and removed API kwargs · every entry on the governing plan's client-and-organisation
    token list. **The list is referenced, never enumerated here**: a battery that names its own
    banned tokens fails on its own specification.
 3. The consistency table from the governing plan, run row by row against this spec.
 4. The register below/above check: nothing here sits below a registered competency or implies an
    unregistered one.
-5. Designed-vs-Built: every imported capability marked **Built (imported: `chaperone/<path>`)**;
+5. Designed-vs-Built: every imported capability marked **Built (imported: `src/chaperone/<path>`)**;
    the purity audit explicitly **not** imported; everything fleet-new marked Designed until built.
-6. Test-inertness: every constraint test demonstrated red-with-constraint-removed at introduction.
+6. Test-inertness: every constraint test demonstrated red-with-constraint-removed at
+   introduction, with the red run recorded in the introducing commit's message.
 
 ---
 
@@ -423,8 +465,8 @@ a graph-checkpointer for escalation durability (the queue plus Postgres is the d
 
 | Capability | Status |
 |---|---|
-| Deterministic act boundary, checker, handoff, queues, audit chain | **Built (imported: `chaperone/src/...`)** |
-| Matching staging + ablation harness | **Built (imported)** |
+| Deterministic act boundary, checker, handoff, queues, audit chain | **Built (imported: `src/chaperone/gates/`, `src/chaperone/policy/`, `src/chaperone/audit/`)** |
+| Matching staging + ablation harness | **Built (imported: `src/chaperone/matching/`)** |
 | Orchestration options + hook + routing | Designed (P1) |
 | Research agent + ResearchBrief contract | Designed (P1) |
 | Ledger schema, projection, `ActContext` feed | Designed (P1) |
@@ -434,4 +476,7 @@ a graph-checkpointer for escalation durability (the queue plus Postgres is the d
 | Drafting agent + chokepoint wiring + pre-flight review | Designed (P3) |
 | Conversation agent + live demo | Designed (P4) |
 | Per-investor sliding-window contact limit | Designed (inherits the library's note) |
+| Rendered block renderer (budget + completeness raises) | Designed (P1) |
+| Judge capture + frozen-verdict replay | Designed (P2) |
+| Durable review-queue table (escalation persistence) | Designed (P3) |
 | Store unification (audit chain + ledger) | Designed note only |
