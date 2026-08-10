@@ -1,0 +1,5 @@
+{"meta": {"provisional": true, "note": "hand-authored; replaced by the P4 demo capture"},
+ "payload": {"tool_name": "send_message", "agent_type": "conversation",
+             "tool_input": {"body": "The round is $9M.", "record": {"round_size": "8000000"},
+                            "cited_fields": ["round_size"], "approval_token": "tok-1",
+                            "jurisdiction": "US"}}}
