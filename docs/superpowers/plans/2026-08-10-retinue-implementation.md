@@ -376,7 +376,7 @@ def build_act_context(store: TouchpointStore, investor_id: str, *,
 (If `ActContext`'s constructor differs on the installed wheel, the RED run names it; fix the call,
 never the design.)
 
-- [ ] **Step 4: Run to verify pass** - Expected: 7 passed.
+- [ ] **Step 4: Run to verify pass** - Expected: 6 passed (13 cumulative with Task 1's).
 - [ ] **Step 5: Inertness proof, then commit** - stub `_rows` to return `()` on
   `StoreUnavailable`: both unavailable-is-None tests go RED (unavailable would collapse into
   empty, the exact confusion 5.2 forbids); restore, and name the red run in the commit message.
