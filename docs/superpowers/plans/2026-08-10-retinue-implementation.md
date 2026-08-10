@@ -1344,6 +1344,14 @@ def test_outward_send_returns_ask_shape():
 def test_research_read_passes_untouched():
     assert asyncio.run(pre_tool_use(load("provisional_research.json"), None, None)) == {}
 
+def test_a_malformed_payload_asks_rather_than_raising():
+    # A hook that raises fails OPEN - the platform contract is that an exception propagating
+    # out of a hook does not block the tool call. These are the two shapes that would raise
+    # ahead of the imported lane's own BaseException net, making its guard unreachable.
+    for payload in (None, {"tool_name": ["not", "a", "string"]}):
+        out = asyncio.run(pre_tool_use(payload, None, None))
+        assert out["hookSpecificOutput"]["permissionDecision"] == "ask"
+
 def test_main_thread_send_still_runs_the_deterministic_lane():
     p = load("provisional_send.json"); p.pop("agent_type")
     out = asyncio.run(pre_tool_use(p, None, None))
@@ -1385,22 +1393,48 @@ def _ask(reason: str) -> dict:
                                    "permissionDecisionReason": reason}}
 
 async def pre_tool_use(input_data: dict, tool_use_id, context) -> dict:
-    agent_type = input_data.get("agent_type")
-    tool_name = input_data.get("tool_name", "")
-    verdict = decide(agent_type, tool_name)
-    if verdict == "ask":
-        return _ask(f"outward action by {agent_type or 'unknown'} requires a human")
-    if tool_name in SEND_TOOLS:
-        return await pre_tool_use_deny(input_data, tool_use_id, context)
-    return {}
+    """Route first, then delegate send payloads to the imported deterministic lane.
+
+    The whole body is guarded because a hook that raises fails OPEN: the platform contract is
+    that an exception propagating out of a hook does not block the tool call. The imported
+    `pre_tool_use_deny` spends a `BaseException` catch on exactly that, and two unguarded lines
+    in front of it - a `.get` on a payload that may not be a dict, and a hashable-membership
+    test on a tool name that may not be a string - would put a fail-open window ahead of that
+    net and make its own malformed-payload guard unreachable.
+
+    It ASKS rather than denies, because the router failing is not a policy finding, and a
+    denial that reports a policy class it never evaluated is the masquerade this design refuses
+    everywhere else. Nothing executes without a human either way.
+    """
+    try:
+        agent_type = input_data.get("agent_type")
+        tool_name = input_data.get("tool_name") or ""
+        verdict = decide(agent_type, tool_name)
+        if verdict == "ask":
+            if tool_name in SEND_TOOLS:
+                return _ask(f"outward send by {agent_type!r} requires a human")
+            # agent_type is untrusted payload text rendered into a permission prompt: quote it.
+            return _ask(f"unrecognised agent type {agent_type!r}; unknown fails toward the human")
+        if tool_name in SEND_TOOLS:
+            return await pre_tool_use_deny(input_data, tool_use_id, context)
+        return {}
+    except BaseException as exc:
+        return _ask(f"the router could not complete: {type(exc).__name__}")
 ```
 
 - [ ] **Step 5: Run to verify pass** - Expected: 4 passed. (Payload key for agent identity may be
   `agent_type` nested differently in real captures; the smoke's fixtures arbitrate in Task 10 and
   this module adapts THEN, never speculatively.)
-- [ ] **Step 6: Inertness proof, then commit** - make `decide` return `"allow"` for an
-  unrecognised `agent_type`: the table-totality test goes RED (unknown must fail toward the
-  human); restore.
+- [ ] **Step 6: Inertness proofs, then commit** - one constraint at a time, named test red,
+  everything else green, restored between:
+  1. Make `decide` return `"allow"` for an unrecognised `agent_type` - the table-totality test
+     reddens (unknown must fail toward the human).
+  2. Make `decide` return `"ask"` for `"research"` - the research pass-through test reddens.
+     Without this the least sensitive test in the file is also the only one with no mutation
+     evidence, and those are the same fact.
+  3. Replace the `try` body's guard by removing the `except` - call `pre_tool_use(None, None,
+     None)` and confirm it raises rather than asking. A hook that raises fails OPEN, so this
+     proof is about the platform contract, not about a return value.
 
 ```bash
 git add src/retinue/boundary fixtures/payloads tests/boundary
