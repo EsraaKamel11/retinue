@@ -201,8 +201,11 @@ conversation lane hands the checker everything the boundary library already carr
 
 Failures are categorised at the validator, and the category decides the response:
 
-- **Retryable** (malformed citation, format, internal inconsistency): retried with the prior
-  offending value quoted verbatim in the retry prompt, under the standard retry budget.
+- **Retryable** (empty or structurally invalid citation, format, internal inconsistency): retried
+  with the prior offending value quoted verbatim in the retry prompt, under the standard retry
+  budget. The line is drawn at emptiness rather than plausibility on purpose: a citation like
+  "see the filing" names no document, and nothing in the string distinguishes a sloppy model from
+  a corpus that lacks the fact, so it is treated as missing. The safe direction is escalation.
 - **Never-retryable** (`missing_source`: no fixture supports the claim): **escalates immediately,
   zero further model calls.** A corpus that does not contain the answer will not start containing
   it on retry; retrying is an invitation to fabricate, which is the failure this design exists to

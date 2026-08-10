@@ -33,7 +33,11 @@ disagree, the spec wins.
   introduction, and the red run is recorded in the introducing commit's message.
 - Timestamps injectable; `now()` only at the Postgres adapter edge.
 - No policy code in this repo, ever. The fleet audit enforces import discipline instead.
-- Commit messages: conventional prefixes, no trailers, no organisation names.
+- Commit messages: conventional prefixes, no trailers, no organisation names. Subject under about
+  72 characters, narrative in the body after a blank line. **The `git commit -m` lines in the task
+  steps are illustrative of CONTENT, not of formatting** - several carry a whole paragraph as one
+  subject. Where a step's `-m` string exceeds the subject limit, split it: the rule governs, the
+  snippet does not.
 
 ## File Structure
 
@@ -862,6 +866,7 @@ def test_missing_source_is_never_retryable_and_names_the_claim():
     with pytest.raises(MissingSource) as e:
         validate_brief(bad, DOCS)
     assert e.value.retryable is False
+    assert e.value.claim == "fund writes early checks"   # the test's name promises this
 
 def test_malformed_citation_is_retryable_and_carries_the_prior_value():
     bad = ResearchBrief(claims=(claim(source=""),))
@@ -873,9 +878,16 @@ def test_ambiguity_is_flagged_never_guessed():
     c = claim(needs_identifier=True, candidates=("Fund A", "Fund A II"))
     assert c.candidates == ("Fund A", "Fund A II")
 
-def test_prompt_and_validator_are_a_coupled_pair():
-    # The prompt must name the same conventions the validator checks - edited together.
-    assert "source" in RESEARCH_PROMPT and "document id" in RESEARCH_PROMPT
+def test_prompt_names_every_convention_the_contract_enforces():
+    # The prompt and the validator are a coupled pair, and this is the half a test can hold:
+    # every convention the contract enforces must be NAMED in the prompt, so a rewrite that
+    # drops one reddens. It cannot pin the prose's meaning - a prompt rewritten to say the
+    # opposite would still pass - which is why the pairing is stated at both definition sites.
+    for convention in ("document id",        # resolve_source
+                       "date",               # Claim.source_date, mandatory
+                       "quantity_key",       # the grouping key that lets a conflict be held
+                       "needs_identifier"):  # ambiguity flagged, never guessed
+        assert convention in RESEARCH_PROMPT, f"prompt never names {convention}"
     assert "refuse" in RESEARCH_PROMPT.lower()
 ```
 
@@ -944,7 +956,9 @@ RESEARCH_PROMPT = (
     "Every claim MUST cite its source containing the exact document id (e.g. 'doc-3 (filing, p.4)')\n"
     "and carry the document's date. If no document supports a fact, refuse that claim entirely -\n"
     "never guess, never write a claim without a resolvable document id. If an entity is ambiguous,\n"
-    "set needs_identifier and list the candidates instead of choosing."
+    "set needs_identifier and list the candidates instead of choosing. When two documents report\n"
+    "different values for the same quantity, give both claims the same quantity_key and keep\n"
+    "both: annotate the conflict, never average it away and never pick a winner."
 )
 ```
 
