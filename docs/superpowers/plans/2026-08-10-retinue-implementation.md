@@ -1472,8 +1472,11 @@ git commit -m "feat: the one hook - total decision table, ask on outward sends (
 - Produces: `audit(root: Path) -> list[str]` (empty = clean; each entry names the broken rule);
   rules: `only_boundary_imports_gates` (only `boundary/` imports `chaperone.gates.hook` /
   `chaperone.gates.sdk_callback` / `chaperone.audit`), `specialists_import_no_gates`,
-  `send_tool_single_home` (the literal `send_message` tool name defined in at most one module
-  under `src/retinue/`). CLI: `python tools/fleet_audit.py` exits 1 on findings. Test imports resolve because the
+  `send_tool_single_home` (the send tool's name is a string constant only inside `boundary/`).
+  Note the rule is a HOME, not a count: "at most one module" cannot be checked by counting,
+  since a single definition anywhere would satisfy a counting rule while sitting in the wrong
+  package, and the planted-violation test - one definition in an otherwise empty tree - would
+  then not fire. CLI: `python tools/fleet_audit.py` exits 1 on findings. Test imports resolve because the
   manifest sets `pythonpath = ["src", "."]` - the repo root entry exists for exactly this
   (`tools/` is a PEP 420 namespace package on 3.11).
 
