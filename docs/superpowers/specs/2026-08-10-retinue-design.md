@@ -145,13 +145,15 @@ that variant captures it.
   would erase permission mode as a per-specialist lever. Source-cited at 0.2.130.
 - The hook's decision table, complete: `agent_type` absent -> main thread, allow · `research` /
   `drafting` -> allow (their rosters contain no outward tool to gate) · `conversation` + send tool
-  -> `"ask"` · any unrecognised `agent_type` -> `"ask"` (unknown fails toward the human).
+  -> `"ask"` · `conversation` + any other tool -> allow (nothing outward) · any unrecognised
+  `agent_type` -> `"ask"` (unknown fails toward the human). The hook decides on payloads, not
+  rosters, which is why the non-send conversation row exists.
 - Routing helpers are plain Python scoped strictly to that table.
   Task routing belongs to the live-lane model via `AgentDefinition.description`; the default lane
   drives specialists directly and needs no router.
 - Each specialist is **one module emitting both artifacts** - the SDK `AgentDefinition` and the
   pydantic-ai `Agent` - from shared constants, with a **parity test** on tool rosters and prompt
-  source. Nothing enforces a specialist's output schema at live runtime; the act boundary holds at
+  source - asserting both artifacts reference the same prompt constant object, not equal strings. Nothing enforces a specialist's output schema at live runtime; the act boundary holds at
   the chokepoint, and the content contract is an offline eval. This spec says so rather than letting
   a reader discover it.
 
@@ -234,24 +236,26 @@ bi-temporality for free: every touchpoint carries `occurred_at` (when true in th
 
 ### 5.2 The projection into the boundary
 
-**The ledger's structural job is feeding the boundary's `ActContext` at the chokepoint** -
-`sent_count` derived from the touchpoints table per investor, `consented_jurisdictions` from the
-identity record, the approval token from the ask flow. The imported library documents its own
+**The ledger's structural job is feeding the boundary's `ActContext` at the chokepoint** (all six
+fields sourced below). The imported library documents its own
 sharpest limit here: with nothing feeding it, `sent_count` defaults to a permissive zero and a
 re-attempt is unguarded. This projection closes that published limit - the fleet does not merely
 import the boundary, it completes it.
 
-All six `ActContext` fields are sourced: `sent_count` from touchpoints, `consented_jurisdictions`
-from identity, the approval token from the ask flow, `granted_tools` from the topology roster,
-`tier` from the ladder decision (defaulting to the most restrictive), `send_cap` from
-configuration.
+All six `ActContext` fields are sourced: `sent_count` from the touchpoints table per investor,
+`consented_jurisdictions` from the identity record, the approval token from the ask flow,
+`granted_tools` from the topology roster, `tier` from the ladder decision (defaulting to the most
+restrictive), `send_cap` from configuration.
 
 **Projection tri-state:** no-touchpoints (a true zero for a new investor) and
 projection-unavailable (the store could not be read) are different facts and carry different types
-(`0` vs `None`). **Unavailable fails closed at the chokepoint**, by a named mechanism: the projection returns a
-sentinel context (no approval token, most-restrictive tier, `sent_count = send_cap`) producing a
-single denial class, `projection_unavailable`, with its own reviewer-facing text - never a
-permissive default, and never a denial that masquerades as a policy judgment. Zero-because-new and zero-because-the-query-failed must never reach the
+(`0` vs `None`). **Unavailable fails closed at the chokepoint**, by a named mechanism: the projection returns
+`None`, and the boundary intercepts **before** `guarded_call` is ever reached - it denies with the
+boundary-level class `projection_unavailable` (a boundary denial class, deliberately NOT a policy
+`ViolationClass`: the fleet adds no policy code) and writes the handoff with that class's own
+reviewer-facing text. No context is fabricated, the policy engine never runs on invented values,
+and the denial never masquerades as a policy judgment - a sentinel context pushed through the
+engine would have reported `no_approval_token`, which is a lie about what happened. Zero-because-new and zero-because-the-query-failed must never reach the
 guard as the same integer, because the second one opens it.
 
 ### 5.3 The rendered block
@@ -345,8 +349,7 @@ contract the fleet depends on (the library never published one):
 each carrying a `meta.captured` stamp) · `synth/` · `vendor/` (the wheel + provenance) ·
 `schema.sql` · `tests/`. **The hook module lives at `boundary/hook.py`** - boundary owns every
 `chaperone.gates` import, and orchestration registers the hook by importing it *from boundary* -
-which is what keeps the AST audit's rules single-sourced and greppable. The parity test asserts
-both specialist artifacts reference the same prompt constant object, not equal strings.
+which is what keeps the AST audit's rules single-sourced and greppable.
 
 ---
 

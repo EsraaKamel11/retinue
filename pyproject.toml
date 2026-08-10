@@ -6,15 +6,17 @@ requires-python = ">=3.11"
 # chaperone is deliberately absent from this list: the PyPI name `chaperone` belongs to an
 # unrelated dead package, so the dependency is the vendored wheel installed via requirements.txt.
 # See vendor/PROVENANCE.md.
+# claude-agent-sdk is a DEFAULT dependency, not an extra: the default test lane constructs
+# ClaudeAgentOptions as data, which needs the package while spawning nothing.
 dependencies = [
     "pydantic>=2.7",
     "pydantic-ai>=2.23",
     "pydantic-evals>=2.23",
     "psycopg[binary]>=3.1",
+    "claude-agent-sdk>=0.2.130",
 ]
 
 [project.optional-dependencies]
-sdk = ["claude-agent-sdk>=0.2.130"]
 dev = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
