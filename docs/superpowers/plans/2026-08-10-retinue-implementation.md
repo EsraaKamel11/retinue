@@ -1321,7 +1321,7 @@ File `fixtures/payloads/provisional_research.json`:
 import asyncio, json
 from pathlib import Path
 import pytest
-from retinue.boundary.hook import decide, pre_tool_use
+from retinue.boundary.hook import SEND_TOOL, decide, pre_tool_use
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "payloads"
 
@@ -1332,7 +1332,7 @@ def test_decision_table_is_total():
     assert decide(None, "anything") == "allow"                 # main thread
     assert decide("research", "Read") == "allow"
     assert decide("drafting", "Read") == "allow"
-    assert decide("conversation", "send_message") == "ask"
+    assert decide("conversation", SEND_TOOL) == "ask"
     assert decide("conversation", "Read") == "allow"           # non-send conversation tool
     assert decide("mystery", "Read") == "ask"                  # unknown fails toward the human
 
@@ -2837,7 +2837,7 @@ FIX = Path(__file__).resolve().parents[2] / "fixtures" / "verdicts" / "checker_s
 def draft(body):
     return Draft(thread=(Message(role="investor", body="hello"),), body=body, cited_fields=(),
                  recipient_jurisdiction="US", recipient_domain="example.test",
-                 tool_name="send_message")
+                 tool_name=SEND_TOOL)
 
 def test_construction_enforces_the_imported_ordering_guarantee():
     with pytest.raises(ValueError, match="weaker"):
