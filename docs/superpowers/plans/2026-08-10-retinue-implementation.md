@@ -509,14 +509,22 @@ services:
     environment:
       POSTGRES_PASSWORD: retinue
       POSTGRES_DB: retinue
-    ports: ["5432:5432"]
-# Then: export RETINUE_PG_DSN=postgresql://postgres:retinue@localhost:5432/retinue
+    # 55432, not 5432: a locally installed Postgres commonly holds the default port.
+    ports: ["55432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+# Then: export RETINUE_PG_DSN=postgresql://postgres:retinue@localhost:55432/retinue
 ```
 
 - [ ] **Step 1: Write `schema.sql`**
 
 ```sql
--- schema.sql: idempotent; the whole migration story. Applies unchanged on the managed target.
+-- schema.sql: idempotent, and the whole migration story FOR P1 - every statement is a create.
+-- A column added later would need its own ALTER, since CREATE TABLE IF NOT EXISTS no-ops on an
+-- existing table and would report success while the new column never appeared.
 CREATE TABLE IF NOT EXISTS touchpoints (
     idempotency_key TEXT PRIMARY KEY,
     investor_id     TEXT NOT NULL,
@@ -528,9 +536,12 @@ CREATE TABLE IF NOT EXISTS touchpoints (
     delivery_status TEXT CHECK (delivery_status IN ('CONFIRMED','FAILED','UNVERIFIABLE')),
     seq             BIGINT GENERATED ALWAYS AS IDENTITY
 );
--- Named so a plan test can match it (spec 2.2): the projection's hot query.
-CREATE INDEX IF NOT EXISTS idx_touchpoints_investor_ts
-    ON touchpoints (investor_id, occurred_at);
+-- Named so a plan test can match it (spec 2.2), and ordered to serve the query the adapter
+-- ACTUALLY issues: `WHERE investor_id=%s ORDER BY seq`. An (investor_id, occurred_at) index
+-- serves the equality and then leaves a Sort, so the second column would buy that path nothing.
+DROP INDEX IF EXISTS idx_touchpoints_investor_ts;
+CREATE INDEX IF NOT EXISTS idx_touchpoints_investor_seq
+    ON touchpoints (investor_id, seq);
 -- Append-only: no UPDATE, no DELETE, enforced in the database not in prose.
 CREATE OR REPLACE FUNCTION touchpoints_append_only() RETURNS trigger AS $$
 BEGIN RAISE EXCEPTION 'touchpoints is append-only'; END;
@@ -539,6 +550,12 @@ DROP TRIGGER IF EXISTS trg_touchpoints_append_only ON touchpoints;
 CREATE TRIGGER trg_touchpoints_append_only
     BEFORE UPDATE OR DELETE ON touchpoints
     FOR EACH ROW EXECUTE FUNCTION touchpoints_append_only();
+-- A row-level trigger CANNOT fire on TRUNCATE, so without this one `TRUNCATE touchpoints`
+-- quietly empties an append-only ledger. Statement-level, because TRUNCATE has no rows.
+DROP TRIGGER IF EXISTS trg_touchpoints_no_truncate ON touchpoints;
+CREATE TRIGGER trg_touchpoints_no_truncate
+    BEFORE TRUNCATE ON touchpoints
+    FOR EACH STATEMENT EXECUTE FUNCTION touchpoints_append_only();
 ```
 
 - [ ] **Step 2: Write the conftest and the failing enforcement tests**
@@ -554,8 +571,8 @@ def _pg_store():
     if not dsn:
         if os.environ.get("RETINUE_PG_REQUIRED") == "1":
             pytest.fail("RETINUE_PG_REQUIRED=1 but RETINUE_PG_DSN is unset - the lane may not silently skip")
-        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped. "
-                    "Run `docker compose up -d` and export the DSN it prints, or point at any Postgres 16.")
+        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped. Run `docker compose up -d` "
+                    "and export the DSN in docker-compose.yml's trailing comment, or point at any Postgres 16.")
     from retinue.ledger.postgres import PostgresStore, bootstrap
     bootstrap(dsn)
     return PostgresStore(dsn)
@@ -611,10 +628,13 @@ def test_projection_query_uses_the_named_index_not_a_seq_scan():
                      FROM generate_series(1, 5000) g ON CONFLICT DO NOTHING""")
         c.commit()
         c.execute("ANALYZE touchpoints")
-        cur = c.execute("EXPLAIN (FORMAT TEXT) SELECT * FROM touchpoints"
-                        " WHERE investor_id='inv-7' ORDER BY occurred_at")
+        # EXPLAINs the adapter's OWN query text, imported rather than retyped: a gate that
+        # explains a query nobody issues measures a hypothetical read path, and the production
+        # query could regress to a Seq Scan with the gate still green.
+        from retinue.ledger.postgres import SELECT_FOR_INVESTOR
+        cur = c.execute("EXPLAIN (FORMAT TEXT) " + SELECT_FOR_INVESTOR, ("inv-7",))
         plan = "\n".join(r[0] for r in cur.fetchall())   # psycopg3: rows come off the CURSOR
-        assert "idx_touchpoints_investor_ts" in plan, f"planner chose a different path:\n{plan}"
+        assert "idx_touchpoints_investor_seq" in plan, f"planner chose a different path:\n{plan}"
         assert "Seq Scan" not in plan, f"seq scan accepted would make this gate vacuous:\n{plan}"
 
 def test_concurrent_append_same_key_exactly_one_wins():
@@ -665,6 +685,12 @@ def bootstrap(dsn: str) -> None:
     except psycopg.OperationalError as exc:
         raise StoreUnavailable(str(exc)) from exc   # same translation as append/touchpoints_for
 
+#: The one read query, hoisted so the index plan test EXPLAINs exactly what the adapter runs.
+SELECT_FOR_INVESTOR = (
+    "SELECT idempotency_key, investor_id, mandate_id, kind, payload,"
+    " occurred_at, recorded_at, delivery_status FROM touchpoints"
+    " WHERE investor_id=%s ORDER BY seq")
+
 class PostgresStore:
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
@@ -685,10 +711,7 @@ class PostgresStore:
     def touchpoints_for(self, investor_id: str) -> tuple[Touchpoint, ...]:
         try:
             with psycopg.connect(self._dsn) as c:
-                rows = c.execute(
-                    "SELECT idempotency_key, investor_id, mandate_id, kind, payload,"
-                    " occurred_at, recorded_at, delivery_status FROM touchpoints"
-                    " WHERE investor_id=%s ORDER BY seq", (investor_id,)).fetchall()
+                rows = c.execute(SELECT_FOR_INVESTOR, (investor_id,)).fetchall()
         except psycopg.OperationalError as exc:
             raise StoreUnavailable(str(exc)) from exc
         return tuple(Touchpoint(idempotency_key=r[0], investor_id=r[1], mandate_id=r[2],

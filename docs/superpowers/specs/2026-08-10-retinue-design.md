@@ -72,7 +72,8 @@ pulls, wait-for-ready races, and port collisions - none deterministic. So:
 - `RETINUE_PG_DSN` set: the **same contract tests** run against real Postgres, plus DB-enforcement
   tests that only a real database earns - unique/idempotency constraints, the append-only trigger,
   concurrent append, and the query-plan assertions: the projection's hot query runs over an
-explicitly named index (`idx_touchpoints_investor_ts` - named so a test can match it), and a plan
+explicitly named index (`idx_touchpoints_investor_seq` - named so a test can match it, and
+ordered to serve the query the adapter actually issues rather than a hypothetical one), and a plan
 test asserts that name appears in the `EXPLAIN` output, over a fixture sized so the planner
 actually chooses it (a ten-row table seq-scans regardless, and the assert must fail on a seq
 scan, never accept one).
