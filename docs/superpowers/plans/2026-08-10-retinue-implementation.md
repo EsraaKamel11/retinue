@@ -710,10 +710,35 @@ def test_unknown_kind_is_rejected_at_construction(ns):
 def test_bitemporal_fields_are_distinct_and_required(ns):
     t = tp(ns, "a")
     assert t.occurred_at != t.recorded_at
+
+def test_idempotency_keys_are_globally_unique_not_per_investor(store, ns):
+    # The schema makes idempotency_key the PRIMARY KEY: one namespace for every investor.
+    # Pinned so an adapter with a per-investor unique index cannot pass this suite.
+    first = tp(ns, "shared")
+    second = Touchpoint(**{**first.model_dump(), "investor_id": f"other-{ns}"})
+    assert store.append(first) is True
+    assert store.append(second) is False
+    assert store.touchpoints_for(f"other-{ns}") == ()
+
+def test_the_store_snapshots_payloads_at_append_and_at_read(store, ns):
+    # Postgres serialises payload into JSONB at write and rebuilds objects per read; the
+    # in-memory reference must snapshot at both barriers, or the two adapters disagree about
+    # whether a retained reference can rewrite an already-appended fact.
+    t = tp(ns, "snap", usd="250000")
+    store.append(t)
+    t.payload["usd"] = "1"                                        # caller mutates its own object
+    inv = f"inv-{ns}"
+    assert store.touchpoints_for(inv)[0].payload["usd"] == "250000"
+    store.touchpoints_for(inv)[0].payload["usd"] = "9"            # reader mutates what it got
+    assert store.touchpoints_for(inv)[0].payload["usd"] == "250000"
 ```
 
-- [ ] **Step 5: Run both lanes** - default: contract green on memory + postgres skipped; with a DSN
-  (docker-compose or local): everything green. Inertness (DSN lane): drop the trigger in a
+(The last two carry forward from Task 1's fix round: this rewrite REPLACES the file, so
+dropping them here would silently delete two constraint tests. The Postgres adapter satisfies
+both inherently - `PRIMARY KEY` is one namespace, and a JSONB round-trip returns a fresh dict.)
+
+- [ ] **Step 5: Run both lanes** - default: 7 contract tests green on memory + postgres skipped;
+  with a DSN (docker-compose or local): everything green. Inertness (DSN lane): drop the trigger in a
   scratch database (`DROP TRIGGER trg_touchpoints_append_only ON touchpoints`) - the enforcement
   test goes RED; re-bootstrap, green. Then commit:
 
