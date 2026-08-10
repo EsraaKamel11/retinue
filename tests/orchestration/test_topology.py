@@ -29,12 +29,18 @@ def test_the_session_roster_drops_every_write_and_outbound_capability():
     # inheritance. Not None: an omitted roster inherits all tools from the parent.
     opts = build_options(_noop_hook)
     assert opts.tools is not None
-    # build_options must publish the constant and not a list of its own. Without this, widening the
-    # ceiling at the CALL SITE - tools=list(SESSION_TOOLS) + ["NotebookEdit"] - passes every other
-    # test in this file, since the denylist below names only five. What this cannot catch is a
-    # widening authored into SESSION_TOOLS itself, which moves both sides of the equality together:
-    # the denylist is the tripwire for that, and outside those five names the diff is the control.
+    # Three axes, and the ceiling is bracketed only by all three together:
+    #   ORIGIN - build_options must publish the constant and not a list of its own, so the call
+    #     site cannot widen past it: tools=list(SESSION_TOOLS) + ["NotebookEdit"] reddens here.
+    #   THE CONSTANT - restated literally below, so a widening from any source must be authored
+    #     twice, in two files. Double entry, the ordinary control for a declaration like this one;
+    #     an equality against SESSION_TOOLS alone cannot object, since both sides move together.
+    #   CONTENT - the denylist catches the dangerous names from either source, including one a
+    #     widener went to the trouble of restating in both places.
+    # The cost is a second line to edit whenever the ceiling legitimately changes, at Task 22 among
+    # others. That is the control working, not friction to design away.
     assert opts.tools == list(SESSION_TOOLS)
+    assert list(SESSION_TOOLS) == ["Agent", "Task", "Read", "Grep", "Glob"]
     assert not ({"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & set(opts.tools))
 
 def test_the_session_roster_covers_every_declared_agent_roster():
