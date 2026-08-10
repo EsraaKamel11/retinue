@@ -1,0 +1,30 @@
+[project]
+name = "retinue"
+version = "0.1.0"
+description = "An orchestrated specialist fleet with an imported deterministic boundary."
+requires-python = ">=3.11"
+# chaperone is deliberately absent from this list: the PyPI name `chaperone` belongs to an
+# unrelated dead package, so the dependency is the vendored wheel installed via requirements.txt.
+# See vendor/PROVENANCE.md.
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-ai>=2.23",
+    "pydantic-evals>=2.23",
+    "psycopg[binary]>=3.1",
+]
+
+[project.optional-dependencies]
+sdk = ["claude-agent-sdk>=0.2.130"]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/retinue"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

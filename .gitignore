@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.superpowers/
+.claude/worktrees/
+.claude/settings.local.json
+.env

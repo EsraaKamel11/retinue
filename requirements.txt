@@ -1,0 +1,4 @@
+# Install order matters: the vendored boundary library first, then this package.
+# The PyPI name `chaperone` is an unrelated package; never `pip install chaperone`.
+vendor/chaperone-0.1.0-py3-none-any.whl
+-e .[dev]
