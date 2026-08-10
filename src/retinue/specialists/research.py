@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic_ai import Agent, ModelRetry
 from retinue.specialists.failures import MalformedCitation, MissingSource
 
 class Claim(BaseModel):
@@ -62,3 +63,28 @@ RESEARCH_PROMPT = (
     "different values for the same quantity, give both claims the same quantity_key and keep\n"
     "both: annotate the conflict, never average it away and never pick a winner."
 )
+
+class ResearchEscalation(Exception):
+    """Terminal: wraps MissingSource so the agent loop cannot convert it into a retry."""
+
+def build_research_agent(model, *, doc_ids: frozenset[str]) -> Agent:
+    """The retryable split, as behaviour.
+
+    A malformed citation is a format failure the model can fix, so it buys one retry that quotes
+    the prior offending value verbatim. A missing source buys none: it escalates in exactly one
+    model call, because a document that does not mention a fact will not start mentioning it on a
+    second attempt, and retrying is an invitation to fabricate.
+    """
+    agent: Agent = Agent(model, output_type=ResearchBrief, retries=1,
+                         instructions=RESEARCH_PROMPT)
+
+    @agent.output_validator
+    def _validate(output: ResearchBrief) -> ResearchBrief:
+        try:
+            validate_brief(output, doc_ids)
+        except MalformedCitation as exc:
+            raise ModelRetry(f"citation was {exc.prior!r} - malformed; cite a document id") from exc
+        except MissingSource as exc:
+            raise ResearchEscalation(str(exc)) from exc     # terminal, not a retry
+        return output
+    return agent
