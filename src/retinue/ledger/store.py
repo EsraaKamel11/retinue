@@ -16,8 +16,10 @@ class InMemoryStore:
         if tp.idempotency_key in self._keys:
             return False
         self._keys.add(tp.idempotency_key)
-        self._rows.append(tp)
+        self._rows.append(tp.model_copy(deep=True))   # Postgres snapshots into JSONB at write
         return True
 
     def touchpoints_for(self, investor_id: str) -> tuple[Touchpoint, ...]:
-        return tuple(t for t in self._rows if t.investor_id == investor_id)
+        # Reads snapshot too: a Postgres read builds fresh objects per query, and a reference
+        # store that hands out its own rows lets a reader rewrite history through them.
+        return tuple(t.model_copy(deep=True) for t in self._rows if t.investor_id == investor_id)

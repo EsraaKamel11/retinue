@@ -36,3 +36,20 @@ def test_unknown_kind_is_rejected_at_construction():
 def test_bitemporal_fields_are_distinct_and_required():
     t = tp("a")
     assert t.occurred_at != t.recorded_at      # world-time vs system-time both carried
+
+def test_the_store_snapshots_payloads_at_append_and_at_read():
+    s = InMemoryStore()
+    t = tp("snap", usd="250000")
+    s.append(t)
+    t.payload["usd"] = "1"                                  # caller mutates its own object
+    assert s.touchpoints_for("inv-1")[0].payload["usd"] == "250000"
+    s.touchpoints_for("inv-1")[0].payload["usd"] = "9"      # reader mutates what it was handed
+    assert s.touchpoints_for("inv-1")[0].payload["usd"] == "250000"
+
+def test_idempotency_keys_are_globally_unique_not_per_investor():
+    # The schema makes idempotency_key the PRIMARY KEY: one namespace for every investor.
+    # Pinned here so an adapter with a per-investor unique index cannot pass this suite.
+    s = InMemoryStore()
+    assert s.append(tp("shared")) is True
+    assert s.append(tp("shared", investor="inv-2")) is False
+    assert s.touchpoints_for("inv-2") == ()
