@@ -66,7 +66,7 @@ disagree, the spec wins.
 | `src/retinue/boundary/preflight.py` | The imported full-lane `pre_tool_use` as pre-flight; two-signal routing |
 | `scripts/judge_capture.py` | Live judge capture (RETINUE_LIVE=1); writes frozen verdicts |
 | `scripts/demo.py` | The P4 live demo: offer asserted, ask captured (RETINUE_LIVE=1) |
-| `tests/…` | Mirrors `src/` per task below |
+| `tests/...` | Mirrors `src/` per task below |
 
 Tasks in dependency order; each independently reviewable. Phase boundaries are the spec's
 (section 9); every phase is independently demonstrable and no task depends on a later one.
@@ -266,7 +266,7 @@ def seeded():
 
 def test_record_fields_are_all_derived():
     r = project_record(seeded(), "inv-1")
-    assert r.stated_check_size == Decimal("250000")
+    assert abs(r.stated_check_size - Decimal("250000")) < Decimal("0.01")   # tolerance, never ==
     assert r.last_contact == T[2]                       # max occurred_at of contact kinds
     assert (r.jurisdiction, r.domain) == ("US", "example.test")
 
@@ -377,11 +377,13 @@ def build_act_context(store: TouchpointStore, investor_id: str, *,
 never the design.)
 
 - [ ] **Step 4: Run to verify pass** - Expected: 7 passed.
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Inertness proof, then commit** - stub `_rows` to return `()` on
+  `StoreUnavailable`: both unavailable-is-None tests go RED (unavailable would collapse into
+  empty, the exact confusion 5.2 forbids); restore, and name the red run in the commit message.
 
 ```bash
 git add src/retinue/ledger/projection.py tests/ledger/test_projection.py
-git commit -m "feat: record-as-projection and the six-field ActContext feed with the unavailable-vs-empty tri-state"
+git commit -m "feat: record-as-projection and the six-field ActContext feed (inertness: unavailable-as-empty stub shown red)"
 ```
 
 ---
@@ -577,6 +579,8 @@ def test_update_and_delete_are_refused_by_trigger():
     with _conn() as c:
         c.execute("INSERT INTO touchpoints (idempotency_key, investor_id, kind, payload, occurred_at, recorded_at)"
                   " VALUES ('t-ap1','inv-1','contact','{}', now(), now()) ON CONFLICT DO NOTHING")
+        c.commit()   # the UPDATE's raise rolls back; an uncommitted INSERT would vanish with it
+                     # and the DELETE below would fire its trigger on zero rows
         with pytest.raises(psycopg.errors.RaiseException):
             c.execute("UPDATE touchpoints SET kind='sent' WHERE idempotency_key='t-ap1'")
         c.rollback()
@@ -596,6 +600,22 @@ def test_projection_query_uses_the_named_index_not_a_seq_scan():
         plan = "\n".join(r[0] for r in c.fetchall())
         assert "idx_touchpoints_investor_ts" in plan, f"planner chose a different path:\n{plan}"
         assert "Seq Scan" not in plan, f"seq scan accepted would make this gate vacuous:\n{plan}"
+
+def test_concurrent_append_same_key_exactly_one_wins():
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime, timezone
+    import uuid
+    from retinue.ledger.models import Touchpoint
+    from retinue.ledger.postgres import PostgresStore, bootstrap
+    bootstrap(DSN)
+    store = PostgresStore(DSN)
+    tp = Touchpoint(idempotency_key="conc-" + uuid.uuid4().hex[:12], investor_id="inv-conc",
+                    mandate_id=None, kind="contact", payload={},
+                    occurred_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+                    recorded_at=datetime(2030, 1, 2, tzinfo=timezone.utc))
+    with ThreadPoolExecutor(2) as ex:
+        results = sorted(ex.map(lambda _: store.append(tp), range(2)))
+    assert results == [False, True]       # exactly one writer wins; the DATABASE enforces it
 ```
 
 - [ ] **Step 3: Run without a DSN** - Expected: enforcement tests SKIP with the printed reason;
@@ -693,11 +713,13 @@ def test_bitemporal_fields_are_distinct_and_required(ns):
 ```
 
 - [ ] **Step 5: Run both lanes** - default: contract green on memory + postgres skipped; with a DSN
-  (docker-compose or local): everything green. Then commit:
+  (docker-compose or local): everything green. Inertness (DSN lane): drop the trigger in a
+  scratch database (`DROP TRIGGER trg_touchpoints_append_only ON touchpoints`) - the enforcement
+  test goes RED; re-bootstrap, green. Then commit:
 
 ```bash
 git add schema.sql src/retinue/ledger/postgres.py tests/ledger
-git commit -m "feat: postgres adapter, append-only trigger, named-index plan test, and the required-lane negative control"
+git commit -m "feat: postgres adapter, append-only trigger, named-index plan test, and the required-lane negative control (inertness: trigger dropped, shown red)"
 ```
 
 ---
@@ -935,11 +957,13 @@ def build_research_agent(model, *, doc_ids: frozenset[str]) -> Agent:
 
 - [ ] **Step 4: Run to verify pass** - Expected: 3 passed. (If pydantic-ai 2.23 wraps the terminal
   exception, assert on the wrapper's chained cause; the RED run tells you the real surface.)
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Inertness proof, then commit** - convert the validator's `MissingSource` branch
+  into a `ModelRetry`: the zero-retry escalation test goes RED (two calls where one is allowed);
+  restore.
 
 ```bash
 git add src/retinue/specialists/research.py tests/specialists/test_research_agent.py
-git commit -m "feat: the research agent under FunctionModel - retry carries the prior value, missing-source escalates in one call"
+git commit -m "feat: the research agent under FunctionModel (inertness: escalation-as-retry shown red)"
 ```
 
 ---
@@ -1068,16 +1092,19 @@ git commit -m "feat: topology as data - foreground everywhere, spawn-only orches
   context) -> dict` - the ONE parent-registered hook: routing first, then chaperone's
   deterministic lane for send payloads.
 
-- [ ] **Step 1: Write the provisional payload fixtures** (replaced by the smoke's captures;
-  marked). JSON permits no comments - the blocks below are the COMPLETE file contents.
+- [ ] **Step 1: Write the provisional payload fixtures** (marked; the research payload is
+  replaced by the P1 smoke's capture, the send payload by the P4 demo's - the smoke session has
+  no send tool by design). JSON permits no comments - the blocks below are the COMPLETE file
+  contents.
 
 File `fixtures/payloads/provisional_send.json`:
 
 ```json
-{"meta": {"provisional": true, "note": "hand-authored; replaced by the P1 capture smoke"},
+{"meta": {"provisional": true, "note": "hand-authored; replaced by the P4 demo capture"},
  "payload": {"tool_name": "send_message", "agent_type": "conversation",
              "tool_input": {"body": "The round is $9M.", "record": {"round_size": "8000000"},
-                            "cited_fields": ["round_size"]}}}
+                            "cited_fields": ["round_size"], "approval_token": "tok-1",
+                            "jurisdiction": "US"}}}
 ```
 
 File `fixtures/payloads/provisional_research.json`:
@@ -1122,8 +1149,12 @@ def test_main_thread_send_still_runs_the_deterministic_lane():
     p = load("provisional_send.json"); p.pop("agent_type")
     out = asyncio.run(pre_tool_use(p, None, None))
     spec = out.get("hookSpecificOutput", {})
-    assert spec.get("permissionDecision") == "deny"            # figure-not-in-record denies
-    assert "act:" in spec.get("permissionDecisionReason", "")
+    assert spec.get("permissionDecision") == "deny"
+    # figure-not-in-record IS the primary finding: the fixture supplies the approval token and a
+    # consented jurisdiction precisely so the 9M-vs-8M mismatch is findings[0] - a token-less
+    # fixture would deny on no_approval_token and this comment would be the masquerade 5.2 warns
+    # about, documented into the showcase test.
+    assert "figure_not_in_record" in spec.get("permissionDecisionReason", "")
 ```
 
 - [ ] **Step 3: Run to verify failure** - Expected: `ImportError`.
@@ -1168,11 +1199,13 @@ async def pre_tool_use(input_data: dict, tool_use_id, context) -> dict:
 - [ ] **Step 5: Run to verify pass** - Expected: 4 passed. (Payload key for agent identity may be
   `agent_type` nested differently in real captures; the smoke's fixtures arbitrate in Task 10 and
   this module adapts THEN, never speculatively.)
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Inertness proof, then commit** - make `decide` return `"allow"` for an
+  unrecognised `agent_type`: the table-totality test goes RED (unknown must fail toward the
+  human); restore.
 
 ```bash
 git add src/retinue/boundary fixtures/payloads tests/boundary
-git commit -m "feat: the one hook - total decision table, ask on outward sends, imported deterministic lane on send payloads"
+git commit -m "feat: the one hook - total decision table, ask on outward sends (inertness: unknown-agent allow shown red)"
 ```
 
 ---
@@ -1188,7 +1221,9 @@ git commit -m "feat: the one hook - total decision table, ask on outward sends, 
   rules: `only_boundary_imports_gates` (only `boundary/` imports `chaperone.gates.hook` /
   `chaperone.gates.sdk_callback` / `chaperone.audit`), `specialists_import_no_gates`,
   `send_tool_single_home` (the literal `send_message` tool name defined in at most one module
-  under `src/retinue/`). CLI: `python tools/fleet_audit.py` exits 1 on findings.
+  under `src/retinue/`). CLI: `python tools/fleet_audit.py` exits 1 on findings. Test imports resolve because the
+  manifest sets `pythonpath = ["src", "."]` - the repo root entry exists for exactly this
+  (`tools/` is a PEP 420 namespace package on 3.11).
 
 - [ ] **Step 1: Write the failing tests (with planted violations - the negative controls)**
 
@@ -1214,6 +1249,17 @@ def test_a_mention_in_a_docstring_is_not_an_import(tmp_path):
     (pkg / "ok.py").write_text('"""chaperone.gates.hook is discussed here, not imported."""\n')
     assert audit(tmp_path / "src" / "retinue") == []          # grep would flag this; AST must not
 
+def test_send_tool_literal_outside_boundary_is_caught(tmp_path):
+    pkg = tmp_path / "src" / "retinue" / "orchestration"; pkg.mkdir(parents=True)
+    (pkg / "evil.py").write_text("TOOL = 'send_message'\n")      # single quotes: grep-proof, AST-caught
+    findings = audit(tmp_path / "src" / "retinue")
+    assert any("send_tool_single_home" in f for f in findings)
+
+def test_a_send_tool_mention_in_a_docstring_is_not_a_definition(tmp_path):
+    pkg = tmp_path / "src" / "retinue" / "orchestration"; pkg.mkdir(parents=True)
+    (pkg / "ok.py").write_text('"""The send_message tool is discussed here, not defined."""\n')
+    assert audit(tmp_path / "src" / "retinue") == []              # equality, not substring
+
 def test_cli_exit_codes():
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "fleet_audit.py")], capture_output=True)
     assert r.returncode == 0
@@ -1224,17 +1270,17 @@ def test_cli_exit_codes():
 
 ```python
 # tools/fleet_audit.py
-"""Import discipline as AST rules - one named rule per function, each with a planted-violation
-test proving it fires. Grep is defeated by a docstring, a comment, or a string literal, and
-cannot tell an import from a mention; ast.walk over Import/ImportFrom can."""
+"""Import discipline as AST rules - one named rule per check, each with a planted-violation test
+proving it fires. Grep is defeated by quoting style, f-strings, docstrings and comments, and
+cannot tell an import from a mention; walking Import/ImportFrom and Constant nodes can."""
 from __future__ import annotations
 import ast, sys
 from pathlib import Path
 
 GATE_MODULES = ("chaperone.gates", "chaperone.audit")   # prefixes: EVERY gates/audit submodule counts
+SEND_TOOL_LITERAL = "send" + "_message"                 # constructed: this file lives outside boundary/
 
-def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+def _imports(tree: ast.AST) -> set[str]:
     out: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -1243,19 +1289,25 @@ def _imports(path: Path) -> set[str]:
             out.add(node.module)
     return out
 
+def _names_send_tool(tree: ast.AST) -> bool:
+    """String CONSTANTS equal to the send-tool name - equality, not substring, so a docstring
+    discussing the tool is not a hit while a single-quoted or f-string definition is."""
+    return any(isinstance(n, ast.Constant) and n.value == SEND_TOOL_LITERAL
+               for n in ast.walk(tree))
+
 def audit(root: Path) -> list[str]:
     findings: list[str] = []
-    send_homes: list[Path] = []
+    send_homes: list[str] = []
     for py in sorted(root.rglob("*.py")):
         rel = py.relative_to(root)
-        mods = _imports(py)
-        gate_hits = [m for m in mods if any(m.startswith(g) for g in GATE_MODULES)]
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        gate_hits = [m for m in _imports(tree) if any(m.startswith(g) for g in GATE_MODULES)]
         if gate_hits and rel.parts[0] != "boundary":
             rule = ("specialists_import_no_gates" if rel.parts[0] == "specialists"
                     else "only_boundary_imports_gates")
             findings.append(f"{rule}: {rel} imports {sorted(gate_hits)}")
-        if '"send_message"' in py.read_text(encoding="utf-8") and rel.parts[0] != "boundary":
-            send_homes.append(rel)
+        if _names_send_tool(tree) and rel.parts[0] != "boundary":
+            send_homes.append(str(rel))
     if send_homes:
         findings.append(f"send_tool_single_home: send tool named outside boundary/: {send_homes}")
     return findings
@@ -1267,8 +1319,8 @@ if __name__ == "__main__":
     sys.exit(1 if found else 0)
 ```
 
-- [ ] **Step 4: Run to verify pass** - Expected: 4 passed (the planted violations ARE the
-  negative controls - each rule demonstrated firing).
+- [ ] **Step 4: Run to verify pass** - Expected: 6 passed (the planted violations ARE the
+  negative controls - every rule, the send-tool rule included, demonstrated firing).
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -1391,6 +1443,9 @@ names, invented figures; no real firm's published ranges).
 
 - [ ] **Step 3: Run the default suite** - Expected: all green; the smoke never runs in tests
   (verify: `grep -r "capture_smoke" tests/` is empty).
+- [ ] **Step 3b: Fingerprint pass** - hand-diff every invented figure in `fixtures/` and the
+  generator against the published check-size ranges of the firms on the untracked token list; a
+  range collision is invisible to every automated gate here.
 - [ ] **Step 4: Commit**
 
 ```bash
@@ -1403,33 +1458,40 @@ git commit -m "feat: synthetic fixtures, seeded roster generator, and the RETINU
 ### Task 11: README seed and the battery
 
 **Files:**
-- Create: `README.md`, `tools/battery.sh`
-- Test: (the battery is the test; run it)
+- Create: `README.md`, `tools/battery.sh`, `.github/workflows/ci.yml`
+- Test: (the battery and the CI negative control are the test; run the battery)
 
 - [ ] **Step 1: Write `tools/battery.sh`**
 
 ```bash
 #!/usr/bin/env bash
 # The repo battery (spec section 11). Zero hits expected on every grep.
+# Patterns are CONSTRUCTED, never spelled: every tracked file, this script and the plan that
+# embeds it included, must pass the battery it defines.
 set -u
 fail=0
 say() { printf "%-40s %s\n" "$1" "$2"; }
 docs=$(git ls-files '*.md')
-# Patterns are CONSTRUCTED, never spelled: every tracked file, this script and the plan that
-# embeds it included, must pass the battery it defines.
-EMD=$(printf 'â')
-n=$(grep -c "$EMD" $docs 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+all=$(git ls-files ':!*.whl')
+EMD=$(printf '\342\200\224')      # octal, so the byte sequence appears in no tracked file
+n=$(grep -c "$EMD" /dev/null $docs 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
 [ "$n" -eq 0 ] && say "em dashes" "ok" || { say "em dashes" "$n FAIL"; fail=1; }
 for t in prov{able,en}; do
-  n=$(grep -cwi "$t" $docs 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+  n=$(grep -cIwi "$t" /dev/null $all 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
   [ "$n" -eq 0 ] && say "adjective $t" "ok" || { say "adjective $t" "$n FAIL"; fail=1; }
 done
-# Client/organisation tokens: list maintained OUTSIDE this script (a battery that names its own
-# banned tokens fails on its own specification). Reads one token per line, comments allowed.
+KW="result""_type="
+n=$(grep -cI "$KW" /dev/null $all 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
+[ "$n" -eq 0 ] && say "removed 2.x result kwarg" "ok" || { say "removed 2.x result kwarg" "$n FAIL"; fail=1; }
+STALE="claude-[23]|gpt-""4"
+n=$(grep -cIE "$STALE" /dev/null $all 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
+[ "$n" -eq 0 ] && say "stale model ids" "ok" || { say "stale model ids" "$n FAIL"; fail=1; }
+# Client/organisation tokens: the list lives OUTSIDE the repo (untracked; see .gitignore) - a
+# tracked list would ship the very tokens it bans. Optional on a fresh clone by design.
 if [ -f tools/banned_tokens.txt ]; then
   while read -r tok; do
     case "$tok" in ''|'#'*) continue;; esac
-    n=$(grep -rci "$tok" $docs src tests 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')
+    n=$(grep -cIi "$tok" /dev/null $all 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
     [ "$n" -eq 0 ] && say "token" "ok" || { say "token [redacted]" "$n FAIL"; fail=1; }
   done < tools/banned_tokens.txt
 fi
@@ -1450,12 +1512,53 @@ and prints `[redacted]` on a hit rather than the token.
   the Designed-vs-Built table copied from spec section 12 with P1 rows flipped to **Built** as
   they land (each flip in the same commit as its feature - never before).
 
+- [ ] **Step 2b: Write `.github/workflows/ci.yml`** - the spec's 2.2 negative control lives in
+  CI or it does not exist ("a lane that can silently skip forever is a vacuous gate"):
+
+```yaml
+name: ci
+on: [push]
+jobs:
+  default-lane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q            # no daemon, no network, no key
+  postgres-lane:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.4                # pinned exactly; matches the managed target's major
+        env:
+          POSTGRES_PASSWORD: retinue
+          POSTGRES_DB: retinue
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      RETINUE_PG_DSN: postgresql://postgres:retinue@localhost:5432/retinue
+      RETINUE_PG_REQUIRED: "1"              # the negative control: a silent skip is a red build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - run: bash tools/battery.sh
+```
+
 - [ ] **Step 3: Run the battery** - Expected: exit 0, every line ok.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add README.md tools/battery.sh .gitignore
-git commit -m "docs: README seed with the Designed-vs-Built table, and the battery with an untracked local token list"
+git add README.md tools/battery.sh .gitignore .github/workflows/ci.yml
+git commit -m "docs: README seed, the battery with an untracked local token list, and CI with the Postgres negative control"
 ```
 
 ---
@@ -1601,11 +1704,12 @@ def last_touch_attribution(store: TouchpointStore, outcome: OutcomeRecord) -> To
 
 - [ ] **Step 5: Run to verify pass** - Expected: 6 passed. Then run the Postgres lane once with a
   DSN if available: `bootstrap` applies the appended table idempotently (re-run is a no-op).
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Inertness proof, then commit** - stub the signal validator to `return v`: the
+  unknown-signal test goes RED; restore.
 
 ```bash
 git add src/retinue/ledger/outcomes.py schema.sql tests/ledger/test_outcomes.py
-git commit -m "feat: OutcomeRecord with the parameterized signal toggle and last-touch attribution"
+git commit -m "feat: OutcomeRecord with the parameterized signal toggle and last-touch attribution (inertness: validator stubbed, shown red)"
 ```
 
 ---
@@ -1629,7 +1733,7 @@ git commit -m "feat: OutcomeRecord with the parameterized signal toggle and last
 
 ```python
 # tests/matching/test_integrate.py
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import pytest
 from chaperone.matching.filters import Mandate
 from retinue.ledger.models import StoreUnavailable, Touchpoint
@@ -1646,10 +1750,9 @@ def row(inv="inv-1", juris="US", ceiling="4000000", stage="seed", sector="devtoo
 
 def seeded(inv="inv-1", days_ago=30, passes=1):
     s = InMemoryStore()
-    t = NOW.replace(day=1)
     s.append(Touchpoint(idempotency_key=f"{inv}-c", investor_id=inv, mandate_id="m-1",
                         kind="contact", payload={},
-                        occurred_at=datetime(2030, 1, 30, tzinfo=timezone.utc), recorded_at=NOW))
+                        occurred_at=NOW - timedelta(days=days_ago), recorded_at=NOW))
     for i in range(passes):
         s.append(Touchpoint(idempotency_key=f"{inv}-p{i}", investor_id=inv, mandate_id="m-1",
                             kind="pass_reason", payload={"reason": "too early"},
@@ -1684,7 +1787,10 @@ def test_similarity_runs_only_inside_the_filtered_set():
 
 def test_cold_start_is_carried_by_similarity():
     rows = [row("inv-new"), row("inv-known")]
-    store = seeded("inv-known", passes=0)
+    # The imported weights are 0.6 relationship / 0.4 embedding, so the rival must be STALE:
+    # at 300 days, 0.6*(1-300/365) + 0.4*0.1 = 0.147 < inv-new's 0.4*0.99 = 0.396. A 30-day-old
+    # contact would win at 0.591 and the test would be red against the real ranker.
+    store = seeded("inv-known", days_ago=300, passes=0)
     ranked, _ = shortlist(rows, MANDATE,
                           embed_score=lambda c: 0.99 if c.id == "inv-new" else 0.1,
                           store=store, now=NOW)
@@ -1776,7 +1882,9 @@ git commit -m "feat: matching integration - ledger-fed candidates through the im
 
 (After Task 10's generator is extended, regenerate expectations by inspecting
 `generate_rosters(7, 8)` once and choosing two defensible golds by hand - the point is a frozen
-judged fixture, and the judgment is the author's, stated as such per spec 7.2.)
+judged fixture, and the judgment is the author's, stated as such per spec 7.2. Choose golds
+inside the mandate's eligibility cell; `seed` and `n` are fixture fields and may change during
+regeneration too - only the metric definitions are immovable.)
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -1814,8 +1922,9 @@ def test_the_metric_notices_a_null_embedder_on_the_cold_start_case():
                        / "gold_rankings.json").read_text(encoding="utf-8"))
     case = next(c for c in gold["cases"] if c["name"] == "cold-start-carried-by-similarity")
     rows = list(generate_rosters(case["seed"], case["n"]))
-    mandate = Mandate(check_size_min="100000", stage=rows[0]["stage"], sector=rows[0]["sector"],
-                      geography=rows[0]["geography"], consented_jurisdictions=frozenset({"US", "UK", "DE"}))
+    top = next(r for r in rows if r["investor_id"] == case["expected_top"])
+    mandate = Mandate(check_size_min="100000", stage=top["stage"], sector=top["sector"],
+                      geography=top["geography"], consented_jurisdictions=frozenset({"US", "UK", "DE"}))
     now = datetime(2030, 3, 1, tzinfo=timezone.utc)
     favouring = ranked_ids(rows, mandate, lambda c: 0.99 if c.id == case["expected_top"] else 0.1,
                            InMemoryStore(), now)
@@ -1823,6 +1932,30 @@ def test_the_metric_notices_a_null_embedder_on_the_cold_start_case():
     good = MRR().evaluate(Ctx(favouring, case["expected_top"]))["mrr"]
     bad = MRR().evaluate(Ctx(null, case["expected_top"]))["mrr"]
     assert good > bad                 # the metric notices when similarity stops carrying them
+
+def test_warm_relationship_wins_under_a_uniform_embedder():
+    # The other gold case's consumer: with the embedder flat, relationship state must decide.
+    from datetime import datetime, timedelta, timezone
+    from chaperone.matching.filters import Mandate
+    from retinue.evals.ranking import ranked_ids
+    from retinue.ledger.models import Touchpoint
+    from retinue.ledger.store import InMemoryStore
+    from retinue.synth.rosters import generate_rosters
+    import json, pathlib
+    gold = json.loads((pathlib.Path(__file__).resolve().parents[2] / "fixtures"
+                       / "gold_rankings.json").read_text(encoding="utf-8"))
+    case = next(c for c in gold["cases"] if c["name"] == "warm-relationship-wins")
+    rows = list(generate_rosters(case["seed"], case["n"]))
+    top = next(r for r in rows if r["investor_id"] == case["expected_top"])
+    mandate = Mandate(check_size_min="100000", stage=top["stage"], sector=top["sector"],
+                      geography=top["geography"], consented_jurisdictions=frozenset({"US", "UK", "DE"}))
+    now = datetime(2030, 3, 1, tzinfo=timezone.utc)
+    store = InMemoryStore()
+    store.append(Touchpoint(idempotency_key="warm-c", investor_id=case["expected_top"],
+                            mandate_id="m-1", kind="contact", payload={},
+                            occurred_at=now - timedelta(days=20), recorded_at=now))
+    ranked = ranked_ids(rows, mandate, lambda c: 0.5, store, now)
+    assert MRR().evaluate(Ctx(ranked, case["expected_top"]))["mrr"] == 1.0
 ```
 
 - [ ] **Step 3: Run to verify failure** - Expected: `ImportError`.
@@ -1864,7 +1997,7 @@ named results; if the installed surface differs, the RED run names it - keep the
 mapping, adjust only the base-class hook. If `Evaluator` is generic and complains about bare
 subscription, subclass without generics - the duck-typed `Ctx` tests pin the math either way.)
 
-- [ ] **Step 5: Run to verify pass** - Expected: 3 passed. If the cold-start gold id chosen in
+- [ ] **Step 5: Run to verify pass** - Expected: 4 passed. If the cold-start gold id chosen in
   Step 1 turns out not to be constructible from the seed-7 roster (wrong sector/stage draw),
   regenerate the fixture per Step 1's procedure - change the FIXTURE, never the metric.
 - [ ] **Step 6: Commit**
@@ -2252,11 +2385,12 @@ Modify `src/retinue/orchestration/topology.py`: add
 provisional comment for drafting; conversation's stays until Task 22).
 
 - [ ] **Step 3: Run to verify pass** - Expected: 5 passed (plus Task 7's suite still green).
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Inertness proof, then commit** - remove the identity raise from `build_draft`:
+  the missing-identity test goes RED; restore.
 
 ```bash
 git add src/retinue/specialists/drafting.py src/retinue/ledger/projection.py src/retinue/orchestration/topology.py tests/specialists/test_drafting.py
-git commit -m "feat: drafting specialist - Draft from the identity record, parity via the shared prompt object"
+git commit -m "feat: drafting specialist - Draft from the identity record, parity via the shared prompt object (inertness: identity raise removed, shown red)"
 ```
 
 ---
@@ -2312,16 +2446,16 @@ def handoff():
 def test_put_lands_in_both_halves():
     sink, rows = memory_sink()
     q = DurableQueues(sink, now=NOW)
-    q.put("human_review", handoff())
-    assert len(rows) == 1 and rows[0][0] == "human_review"
-    assert len(q.items("human_review")) == 1 and not q.all_empty()
+    q.put("human-review", handoff())
+    assert len(rows) == 1 and rows[0][0] == "human-review"
+    assert len(q.items("human-review")) == 1 and not q.all_empty()
 
 def test_durable_half_writes_first_so_a_failed_sink_loses_nothing_silently():
     def broken(name, payload, at):
         raise OSError("disk full")
     q = DurableQueues(broken, now=NOW)
     with pytest.raises(OSError):
-        q.put("human_review", handoff())
+        q.put("human-review", handoff())
     assert q.all_empty()      # nothing claims routed-in-memory while durability failed
 
 def test_postgres_sink_persists_a_row():
@@ -2335,9 +2469,9 @@ def test_postgres_sink_persists_a_row():
     from retinue.boundary.review_queue import postgres_sink
     bootstrap(dsn)
     q = DurableQueues(postgres_sink(dsn), now=NOW)
-    q.put("human_review", handoff())
+    q.put("human-review", handoff())
     with psycopg.connect(dsn) as c:
-        n = c.execute("SELECT count(*) FROM review_queue WHERE queue_name='human_review'").fetchone()[0]
+        n = c.execute("SELECT count(*) FROM review_queue WHERE queue_name='human-review'").fetchone()[0]
     assert n >= 1
 ```
 
@@ -2461,6 +2595,11 @@ def test_unknown_draft_fails_closed_not_invented_clean():
     with pytest.raises(CheckerUnavailable):
         checker.check(draft("A body no frozen verdict covers."), Record(fields={}))
 
+def test_flag_for_review_travels_the_transport_and_registers_unverifiable():
+    checker = build_checker(scripted_transport(FIX))
+    v = checker.check(draft("I genuinely cannot tell about this one."), Record(fields={}))
+    assert isinstance(v, FlagForReview) and register_of(v) == "UNVERIFIABLE"
+
 def test_register_mapping_exception_vs_unverifiable():
     assert register_of(Verdict(violates=True, violation_class=None, confidence=0.9)) == "EXCEPTION"
     assert register_of(FlagForReview(reason="cannot tell")) == "UNVERIFIABLE"
@@ -2510,14 +2649,16 @@ def register_of(result: CheckerResult) -> str:
     return "EXCEPTION" if result.violates else "CLEAN"
 ```
 
-- [ ] **Step 4: Run to verify pass** - Expected: 4 passed. (The violating-verdict test also
+- [ ] **Step 4: Run to verify pass** - Expected: 5 passed. (The violating-verdict test also
   witnesses the imported span rule: the span in the fixture is a verbatim substring of the body,
   which is why `check` returns instead of retrying into `CheckerUnavailable`.)
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Inertness proof, then commit** - make the scripted transport return a clean
+  `Verdict` for unknown drafts: the fail-closed test goes RED (the lane would invent a clean);
+  restore.
 
 ```bash
 git add src/retinue/boundary/checker_lane.py fixtures/verdicts/checker_scripted.json tests/boundary/test_checker_lane.py
-git commit -m "feat: checker lane - scripted frozen transport, imported ordering guarantee witnessed at construction"
+git commit -m "feat: checker lane - scripted frozen transport, ordering guarantee witnessed (inertness: invented-clean shown red)"
 ```
 
 ---
@@ -2534,7 +2675,7 @@ git commit -m "feat: checker lane - scripted frozen transport, imported ordering
   `Handoff`; Task 8's `SEND_TOOL`; Task 17's `build_draft`/`as_policy_record`; Task 18's
   `DurableQueues`; Task 19's checker; Task 1's store.
 - Produces: `PROJECTION_UNAVAILABLE = "boundary:projection_unavailable"`;
-  `REVIEW_QUEUE = "human_review"`; `TerminalSend`, `InvalidSend`;
+  `REVIEW_QUEUE = "human-review"`; `TerminalSend`, `InvalidSend`;
   `attempt_send(*, key, draft, record, context, checker, gateway, registry, queues, store,
   investor_id, mandate_id, occurred_at, recorded_at, confirm) -> GatewayResult | None`
   (`None` = denied at the boundary pre-check; the policy engine never ran).
@@ -2632,12 +2773,16 @@ def test_policy_denial_is_terminal_and_routed(tmp_path):
     assert kw["store"].touchpoints_for("inv-1") == ()    # no sent touchpoint on a denial
     assert rows                                          # the imported path routed the handoff
 
-def test_checker_unavailable_propagates_fail_closed(tmp_path):
-    kw, _ = harness(tmp_path)
-    from chaperone.gates.checker import CheckerUnavailable
-    with pytest.raises(CheckerUnavailable):
-        attempt_send(key="k6", draft=draft(body="A body no frozen verdict covers."),
-                     record=Record(fields={}), context=ctx(), confirm=lambda v: True, **kw)
+def test_checker_unavailable_becomes_a_routed_denial_with_outage(tmp_path):
+    # The imported engine CATCHES CheckerUnavailable and returns a routed denial carrying
+    # `outage` - "a denial is returned, never raised" is the engine's own doctrine. Chokepoint
+    # callers therefore see a denied result with the outage named, never an exception.
+    kw, rows = harness(tmp_path)
+    out = attempt_send(key="k6", draft=draft(body="A body no frozen verdict covers."),
+                       record=Record(fields={}), context=ctx(), confirm=lambda v: True, **kw)
+    assert out is not None and not out.allowed
+    assert kw["store"].touchpoints_for("inv-1") == ()
+    assert rows and rows[-1][1]["reason_category"] == "other" and rows[-1][1]["detector_outage"]
 ```
 
 - [ ] **Step 2: Run to verify failure**, then implement:
@@ -2675,7 +2820,8 @@ from retinue.ledger.store import TouchpointStore
 
 PROJECTION_UNAVAILABLE = "boundary:projection_unavailable"
 DELIVERY_UNVERIFIABLE = "boundary:delivery_unverifiable"
-REVIEW_QUEUE = "human_review"
+REVIEW_QUEUE = "human-review"   # the imported destination_for's one queue name (gates/engine.py);
+                                # spelled here because engine sits outside the 6.1 import surface
 
 class TerminalSend(Exception):
     """This idempotency key already produced an act. Refused before validation, by design."""
@@ -2782,8 +2928,18 @@ def test_signal_one_checker_denial_routes():
                  Record(fields={}), ctx(), CHECKER())
     assert not p.outcome.allow and routes_to_human(p)
 
-def test_signal_two_annotation_failure_routes():
+def test_an_unavailable_checker_is_a_routed_denial_not_an_annotation_failure():
+    # The imported engine converts CheckerUnavailable into a denial carrying `outage`; the
+    # annotation SUCCEEDED at reporting it, so this is signal ONE, not signal two.
     p = annotate(draft("A body no frozen verdict covers."), Record(fields={}), ctx(), CHECKER())
+    assert p.outcome is not None and not p.outcome.allow and routes_to_human(p)
+
+def test_signal_two_annotation_failure_routes():
+    class ExplodingChecker:
+        def check(self, draft, record):
+            raise RuntimeError("annotation tore")
+    p = annotate(draft("Following up on our conversation."), Record(fields={}), ctx(),
+                 ExplodingChecker())
     assert p.outcome is None and p.error and routes_to_human(p)
 
 def test_confidence_routes_nothing_structurally():
@@ -2800,9 +2956,9 @@ predicate set, checker included, with NO execution. Every draft reaches the revi
 annotated with its would-be verdict.
 
 Routing is a TWO-SIGNAL disjunction (spec 6): checker denial OR pre-flight failure (the
-annotation errored or produced no verdict). Model confidence deliberately routes nothing - no
-field of it is read in this module, and a test pins that structurally. Parity tests are CI
-checks, not a runtime signal."""
+annotation errored or produced no verdict). The checker's numeric self-rating deliberately
+routes nothing - no field of it is read in this module, and a test pins that structurally.
+Parity tests are CI checks, not a runtime signal."""
 from __future__ import annotations
 from dataclasses import dataclass
 from chaperone.gates.hook import HookOutcome, pre_tool_use
@@ -2828,8 +2984,10 @@ def routes_to_human(p: Preflight) -> bool:
     return not p.outcome.allow
 ```
 
-- [ ] **Step 3: Run to verify pass** - Expected: 4 passed.
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Run to verify pass** - Expected: 5 passed.
+- [ ] **Step 4: Inertness proof, then commit** - make `routes_to_human` return `False` when
+  `outcome is None`: the signal-two test goes RED; restore, and name the red run in the commit
+  message.
 
 ```bash
 git add src/retinue/boundary/preflight.py tests/boundary/test_preflight.py
@@ -2948,11 +3106,13 @@ audit stays green.)
 
 - [ ] **Step 3: Run to verify pass** - Expected: 4 passed; Task 7's and Task 9's suites still
   green (the audit's `send_tool_single_home` rule is the reason the roster change imports).
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Inertness proof, then commit** - set conversation's `AgentDefinition` prompt to
+  `"" + CONVERSATION_PROMPT` (equal string, different object): the `is`-parity test goes RED;
+  restore.
 
 ```bash
 git add src/retinue/specialists/conversation.py src/retinue/orchestration/topology.py tests/specialists/test_conversation.py
-git commit -m "feat: conversation specialist - ConversationTurn composes Draft, send tool joins the roster by import"
+git commit -m "feat: conversation specialist - ConversationTurn composes Draft (inertness: copied-string parity shown red)"
 ```
 
 ---
@@ -3097,7 +3257,9 @@ git commit -m "feat: the P4 demo - offer asserted before any gating claim, ask f
   about model behaviour).
 
 - [ ] **Step 2: Run the battery** - `bash tools/battery.sh` - Expected: exit 0, every line ok
-  (em dashes, adjectives, token list if present locally, audit, full suite).
+  (em dashes, adjectives, removed kwarg, stale ids, token list if present locally, audit, full
+  suite). Then the fingerprint pass once more over everything committed since Task 10's: every
+  invented figure hand-diffed against the published ranges of the firms on the untracked list.
 
 - [ ] **Step 3: Commit**
 
@@ -3144,3 +3306,17 @@ terminal-exception wrapping (T6), SDK kwarg casing (T7), the captured payload's 
 agent-identity key (T8/T10), pydantic-evals mapping-return surface (T14), pydantic accepting the
 `Draft` dataclass as a model field (T22), the SDK tool decorator/`mcp_servers`/system:init shapes
 (T23) - each marked "the RED run names it; fix the call/script, never the design."
+
+**Fable 5 round (2026-08-10) applied in full:** engine outage semantics corrected (a chokepoint
+or pre-flight `CheckerUnavailable` is a routed denial carrying `outage`, never a raise - Tasks
+20/21 and the spec's section 8 row); the pre-flight structural test made safe against its own
+docstring; Task 4's trigger test commits its seed row; the cold-start case ages its rival past
+the 0.6/0.4 crossover; `pythonpath` gains the repo root; the battery rebuilt (octal em-dash
+pattern, tracked-file scope, filename-prefix summing, removed-kwarg and stale-id gates, binary
+exclusion); the spec's rejected-alternatives item narrowed to external MCP configuration; the CI
+negative-control job added to Task 11; the queue name unified on the imported `human-review`;
+money tolerance in Task 2; inertness steps added to Tasks 2, 4, 6, 8, 12, 17, 19, 21, 22; the
+audit's send-tool rule rebuilt on AST constant equality with planted-violation tests; the warm
+gold case gained its consumer and both eval mandates anchor to the gold's own cell; a
+concurrent-append test joined the DSN lane; the flag-for-review fixture row gained its transport
+test; fingerprint hand-check gates added at Tasks 10 and 24.

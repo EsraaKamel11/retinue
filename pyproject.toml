@@ -22,7 +22,7 @@ dev = ["pytest>=8.0"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-pythonpath = ["src"]
+pythonpath = ["src", "."]  # "." lets tests import tools/ (the fleet audit)
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/retinue"]

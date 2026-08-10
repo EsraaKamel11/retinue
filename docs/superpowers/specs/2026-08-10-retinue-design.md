@@ -392,7 +392,7 @@ graph-checkpointer.
 |---|---|---|
 | research | `missing_source` | never-retryable; escalate immediately (4.4) |
 | research | malformed citation / format | retry with prior value verbatim, budgeted |
-| drafting | checker unusable after budget | fail closed (`CheckerUnavailable` propagates) |
+| drafting | checker unusable after budget | fail closed: a direct `Checker.check` raises `CheckerUnavailable`; at the chokepoint and pre-flight the imported engine converts it into a routed denial carrying `outage` - either way, never an allow |
 | drafting | checker denial | terminal handoff; redraft proposes to a human, never auto-retries |
 | conversation | outward send attempt | hook `"ask"` -> human; chokepoint at execution |
 | conversation | send executed, unconfirmed | touchpoint `delivery_status=UNVERIFIABLE`; escalate to queue; never guessed CONFIRMED |
@@ -435,7 +435,7 @@ per-investor contact limit over touchpoints is a different object with the same 
 batch APIs and SLA math (no batch workload; replay removes the cost argument) · prompt caching (the
 live lane runs once) · a token counter in the default lane (imports model-dependence; the byte
 budget is lane-independent) · vector-store claim grouping (requires a real embedder in the default
-lane) · MCP configuration (shipped by the pinned SDK, deliberately unused here) · the CLI-product configuration surface (this
+lane) · external MCP server configuration (unused; the SDK's in-process `create_sdk_mcp_server` tool surface is used exactly once, in the P4 demo, because a send tool must exist in a session before its gating can be demonstrated) · the CLI-product configuration surface (this
 is an SDK application) · settings allow/ask rules for the send tool (the unresolved evaluation-order corner is
 hook-allow versus ask-rule; registering none keeps it unreachable) · settings deny lists
 (redundant with tool absence plus the hook) · a hand-rolled agent loop (the SDK owns it) · an agentic
