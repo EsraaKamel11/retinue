@@ -13,11 +13,19 @@ def _brief_call(source: str):
                     "source_date": "2030-01-02", "confidence": 0.8}]})
 
 def test_valid_brief_passes_through():
+    calls = []
     def fn(messages, info: AgentInfo):
+        calls.append(1)
         return ModelResponse(parts=[_brief_call("doc-1 (filing)")])
     agent = build_research_agent(FunctionModel(fn), doc_ids=DOCS)
     out = agent.run_sync("investor brief").output
     assert out.claims[0].source_date == date(2030, 1, 2)
+    # A QUALIFIED citation survives intact and costs exactly one model call: the happy path neither
+    # escalates nor buys a retry, so a resolution rule tightened back to equality reddens here.
+    # What this test cannot catch is a validator that does nothing - a happy path has no observable
+    # effect to catch that with - and the two tests below are what redden if the validator vanishes.
+    assert out.claims[0].source == "doc-1 (filing)"
+    assert len(calls) == 1
 
 def test_missing_source_escalates_with_zero_retries():
     # The whole point of the retryable split, as behaviour. A document that does not mention a
