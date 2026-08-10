@@ -3,11 +3,14 @@
   "captured": {
    "sdk": "0.2.130",
    "cli": "2.1.222"
-  }
+  },
+  "redacted": [
+   "transcript_path: user path segment replaced with <user>"
+  ]
  },
  "payload": {
   "session_id": "e1cc3c7b-fd17-4ff5-92c7-835e3d0464b8",
-  "transcript_path": "C:\\Users\\hp\\.claude\\projects\\D--retinue\\e1cc3c7b-fd17-4ff5-92c7-835e3d0464b8.jsonl",
+  "transcript_path": "C:\\Users\\<user>\\.claude\\projects\\D--retinue\\e1cc3c7b-fd17-4ff5-92c7-835e3d0464b8.jsonl",
   "cwd": "D:\\retinue",
   "prompt_id": "5e53fd6a-7809-45a2-9bc0-2f985837f605",
   "permission_mode": "default",
