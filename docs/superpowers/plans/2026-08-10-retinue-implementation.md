@@ -512,7 +512,9 @@ services:
     # 55432, not 5432: a locally installed Postgres commonly holds the default port.
     ports: ["55432:5432"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      # -d names the database: without it pg_isready can report healthy during the entrypoint's
+      # socket-only init phase, before the server accepts TCP connections.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d retinue"]
       interval: 2s
       timeout: 3s
       retries: 15
@@ -522,8 +524,10 @@ services:
 - [ ] **Step 1: Write `schema.sql`**
 
 ```sql
--- schema.sql: idempotent, and the whole migration story FOR P1 - creates, plus the drops that
--- keep those creates re-runnable. A column added later would need its own ALTER, since CREATE
+-- schema.sql: idempotent, and the whole migration story FOR P1 - creates, plus two DROP TRIGGER
+-- statements that keep their creates re-runnable (CREATE TRIGGER has no IF NOT EXISTS). The one
+-- exception is DROP INDEX IF EXISTS below: that is the file's single real migration action, and
+-- it retires an index an earlier revision created. A column added later would need its own ALTER, since CREATE
 -- TABLE IF NOT EXISTS no-ops on an existing table and would report success while the new column
 -- never appeared.
 CREATE TABLE IF NOT EXISTS touchpoints (
@@ -572,8 +576,9 @@ def _pg_store():
     if not dsn:
         if os.environ.get("RETINUE_PG_REQUIRED") == "1":
             pytest.fail("RETINUE_PG_REQUIRED=1 but RETINUE_PG_DSN is unset - the lane may not silently skip")
-        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped. Run `docker compose up -d` "
-                    "and export the DSN in docker-compose.yml's trailing comment, or point at any Postgres 16.")
+        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped. Run `docker compose up -d --wait` "
+                    "(--wait consumes the healthcheck) and export the DSN in docker-compose.yml's "
+                    "trailing comment, or point at any Postgres 16.")
     from retinue.ledger.postgres import PostgresStore, bootstrap
     bootstrap(dsn)
     return PostgresStore(dsn)
@@ -608,7 +613,7 @@ def _conn():
     bootstrap(DSN)
     return psycopg.connect(DSN)
 
-def test_update_and_delete_are_refused_by_trigger():
+def test_update_delete_and_truncate_are_refused_by_trigger():
     with _conn() as c:
         c.execute("INSERT INTO touchpoints (idempotency_key, investor_id, kind, payload, occurred_at, recorded_at)"
                   " VALUES ('t-ap1','inv-1','contact','{}', now(), now()) ON CONFLICT DO NOTHING")
@@ -619,6 +624,10 @@ def test_update_and_delete_are_refused_by_trigger():
         c.rollback()
         with pytest.raises(psycopg.errors.RaiseException):
             c.execute("DELETE FROM touchpoints WHERE idempotency_key='t-ap1'")
+        c.rollback()
+        # The third arm is the one a row-level trigger cannot cover: TRUNCATE has no rows.
+        with pytest.raises(psycopg.errors.RaiseException):
+            c.execute("TRUNCATE touchpoints")
         c.rollback()
 
 def test_projection_query_uses_the_named_index_not_a_seq_scan():
