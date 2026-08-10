@@ -5,15 +5,23 @@ import psycopg
 from psycopg.types.json import Jsonb
 from retinue.ledger.models import StoreUnavailable, Touchpoint
 
+#: Resolves from a source checkout only - the wheel ships `src/` and not this file. Bootstrapping
+#: is a test-and-CI operation, both of which run from a checkout, so that is the whole story.
 _SCHEMA = Path(__file__).resolve().parents[3] / "schema.sql"
 
 def bootstrap(dsn: str) -> None:
-    with psycopg.connect(dsn) as c:
-        c.execute(_SCHEMA.read_text(encoding="utf-8"))
+    if not _SCHEMA.is_file():
+        raise FileNotFoundError(
+            f"{_SCHEMA} is missing: bootstrap runs from a source checkout, not an installed wheel")
+    try:
+        with psycopg.connect(dsn) as c:
+            c.execute(_SCHEMA.read_text(encoding="utf-8"))
+    except psycopg.OperationalError as exc:
+        raise StoreUnavailable(str(exc)) from exc   # same translation as append/touchpoints_for
 
 class PostgresStore:
-    def __init__(self, dsn: str, table_suffix: str = "") -> None:
-        self._dsn = dsn        # suffix reserved for test isolation; single table in P1
+    def __init__(self, dsn: str) -> None:
+        self._dsn = dsn
 
     def append(self, tp: Touchpoint) -> bool:
         try:

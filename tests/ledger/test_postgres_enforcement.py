@@ -42,6 +42,8 @@ def test_projection_query_uses_the_named_index_not_a_seq_scan():
         assert "Seq Scan" not in plan, f"seq scan accepted would make this gate vacuous:\n{plan}"
 
 def test_concurrent_append_same_key_exactly_one_wins():
+    _conn().close()          # same guard as its siblings: an explanatory failure, never an
+                             # opaque AttributeError when the required lane has no DSN
     from concurrent.futures import ThreadPoolExecutor
     from datetime import datetime, timezone
     import uuid
