@@ -4,5 +4,11 @@ services:
     environment:
       POSTGRES_PASSWORD: retinue
       POSTGRES_DB: retinue
-    ports: ["5432:5432"]
-# Then: export RETINUE_PG_DSN=postgresql://postgres:retinue@localhost:5432/retinue
+    # 55432, not 5432: a locally installed Postgres commonly holds the default port.
+    ports: ["55432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+# Then: export RETINUE_PG_DSN=postgresql://postgres:retinue@localhost:55432/retinue

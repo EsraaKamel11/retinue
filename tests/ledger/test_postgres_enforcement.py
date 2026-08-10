@@ -15,7 +15,7 @@ def _conn():
     bootstrap(DSN)
     return psycopg.connect(DSN)
 
-def test_update_and_delete_are_refused_by_trigger():
+def test_update_delete_and_truncate_are_refused_by_trigger():
     with _conn() as c:
         c.execute("INSERT INTO touchpoints (idempotency_key, investor_id, kind, payload, occurred_at, recorded_at)"
                   " VALUES ('t-ap1','inv-1','contact','{}', now(), now()) ON CONFLICT DO NOTHING")
@@ -27,6 +27,9 @@ def test_update_and_delete_are_refused_by_trigger():
         with pytest.raises(psycopg.errors.RaiseException):
             c.execute("DELETE FROM touchpoints WHERE idempotency_key='t-ap1'")
         c.rollback()
+        with pytest.raises(psycopg.errors.RaiseException):
+            c.execute("TRUNCATE touchpoints")
+        c.rollback()
 
 def test_projection_query_uses_the_named_index_not_a_seq_scan():
     with _conn() as c:
@@ -36,9 +39,13 @@ def test_projection_query_uses_the_named_index_not_a_seq_scan():
                      FROM generate_series(1, 5000) g ON CONFLICT DO NOTHING""")
         c.commit()
         c.execute("ANALYZE touchpoints")
-        cur = c.execute("EXPLAIN (FORMAT TEXT) SELECT * FROM touchpoints WHERE investor_id='inv-7' ORDER BY occurred_at")
+        # EXPLAINs the adapter's OWN query text, imported rather than retyped: a gate that
+        # explains a query nobody issues measures a hypothetical read path, and the production
+        # query could regress to a Seq Scan with the gate still green.
+        from retinue.ledger.postgres import SELECT_FOR_INVESTOR
+        cur = c.execute("EXPLAIN (FORMAT TEXT) " + SELECT_FOR_INVESTOR, ("inv-7",))
         plan = "\n".join(r[0] for r in cur.fetchall())   # rows come off the cursor: a Connection has no fetchall
-        assert "idx_touchpoints_investor_ts" in plan, f"planner chose a different path:\n{plan}"
+        assert "idx_touchpoints_investor_seq" in plan, f"planner chose a different path:\n{plan}"
         assert "Seq Scan" not in plan, f"seq scan accepted would make this gate vacuous:\n{plan}"
 
 def test_concurrent_append_same_key_exactly_one_wins():

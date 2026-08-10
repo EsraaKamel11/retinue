@@ -19,6 +19,12 @@ def bootstrap(dsn: str) -> None:
     except psycopg.OperationalError as exc:
         raise StoreUnavailable(str(exc)) from exc   # same translation as append/touchpoints_for
 
+#: The one read query, hoisted so the index plan test EXPLAINs exactly what the adapter runs.
+SELECT_FOR_INVESTOR = (
+    "SELECT idempotency_key, investor_id, mandate_id, kind, payload,"
+    " occurred_at, recorded_at, delivery_status FROM touchpoints"
+    " WHERE investor_id=%s ORDER BY seq")
+
 class PostgresStore:
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
@@ -39,10 +45,7 @@ class PostgresStore:
     def touchpoints_for(self, investor_id: str) -> tuple[Touchpoint, ...]:
         try:
             with psycopg.connect(self._dsn) as c:
-                rows = c.execute(
-                    "SELECT idempotency_key, investor_id, mandate_id, kind, payload,"
-                    " occurred_at, recorded_at, delivery_status FROM touchpoints"
-                    " WHERE investor_id=%s ORDER BY seq", (investor_id,)).fetchall()
+                rows = c.execute(SELECT_FOR_INVESTOR, (investor_id,)).fetchall()
         except psycopg.OperationalError as exc:
             raise StoreUnavailable(str(exc)) from exc
         return tuple(Touchpoint(idempotency_key=r[0], investor_id=r[1], mandate_id=r[2],

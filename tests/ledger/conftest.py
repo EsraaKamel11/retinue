@@ -7,8 +7,8 @@ def _pg_store():
     if not dsn:
         if os.environ.get("RETINUE_PG_REQUIRED") == "1":
             pytest.fail("RETINUE_PG_REQUIRED=1 but RETINUE_PG_DSN is unset - the lane may not silently skip")
-        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped. "
-                    "Run `docker compose up -d` and export the DSN it prints, or point at any Postgres 16.")
+        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped. Run `docker compose up -d` "
+                    "and export the DSN in docker-compose.yml's trailing comment, or point at any Postgres 16.")
     from retinue.ledger.postgres import PostgresStore, bootstrap
     bootstrap(dsn)
     return PostgresStore(dsn)
