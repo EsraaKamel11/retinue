@@ -29,6 +29,12 @@ def test_the_session_roster_drops_every_write_and_outbound_capability():
     # inheritance. Not None: an omitted roster inherits all tools from the parent.
     opts = build_options(_noop_hook)
     assert opts.tools is not None
+    # build_options must publish the constant and not a list of its own. Without this, widening the
+    # ceiling at the CALL SITE - tools=list(SESSION_TOOLS) + ["NotebookEdit"] - passes every other
+    # test in this file, since the denylist below names only five. What this cannot catch is a
+    # widening authored into SESSION_TOOLS itself, which moves both sides of the equality together:
+    # the denylist is the tripwire for that, and outside those five names the diff is the control.
+    assert opts.tools == list(SESSION_TOOLS)
     assert not ({"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & set(opts.tools))
 
 def test_the_session_roster_covers_every_declared_agent_roster():
@@ -36,9 +42,12 @@ def test_the_session_roster_covers_every_declared_agent_roster():
     # an AgentDefinition that is missing here resolves to nothing - silently, with every other
     # test in this file still green. This is the assertion that makes that coupling visible.
     opts = build_options(_noop_hook)
-    for name, definition in AGENTS.items():
-        missing = set(definition.tools or ()) - set(opts.tools)
-        assert not missing, f"{name} declares {sorted(missing)}, absent from the session roster"
+    # `or ()` is deliberately fail-open here, the inverse of the research guard above: an agent
+    # with tools=None inherits the session roster and so cannot be starved by it. Tightening this
+    # to `is not None` would redden on a config this test does not speak to.
+    starved = {name: sorted(set(d.tools or ()) - set(opts.tools)) for name, d in AGENTS.items()}
+    starved = {name: missing for name, missing in starved.items() if missing}
+    assert not starved, f"declared but absent from the session roster: {starved}"
 
 def test_tiers_use_the_imported_vocabulary_exactly():
     from chaperone.gates.checker import MODEL_STRENGTH
@@ -55,7 +64,10 @@ def test_research_parity_prompt_is_the_same_object():
     # what the model is actually handed - rather than Agent._instructions, which is private. That
     # field is a join of the agent's literal instructions, so it can only be asked whether it
     # CARRIES the constant; identity survives the join today by a CPython single-element
-    # optimisation, which is not a property to assert on.
+    # optimisation, which is not a property to assert on. The constant is stripped before the
+    # comparison because that render is `'\n'.join(parts).strip()`: without it, rewriting this
+    # prompt as a triple-quoted string with a leading newline - the obvious refactor, and the one
+    # Tasks 17 and 22 will reach for - reddens a test with nothing wrong behind it.
     seen = []
     def fn(messages, info: AgentInfo):
         seen.append(messages)
@@ -63,7 +75,7 @@ def test_research_parity_prompt_is_the_same_object():
             "claims": [{"claim": "writes early checks", "evidence": "p4", "source": "doc-1",
                         "source_date": "2030-01-02", "confidence": 0.8}]})])
     build_research_agent(FunctionModel(fn), doc_ids=frozenset({"doc-1"})).run_sync("investor brief")
-    assert RESEARCH_PROMPT in (seen[0][0].instructions or "")
+    assert RESEARCH_PROMPT.strip() in (seen[0][0].instructions or "")
 
 def test_hook_is_registered_once_on_pre_tool_use():
     opts = build_options(_noop_hook)
