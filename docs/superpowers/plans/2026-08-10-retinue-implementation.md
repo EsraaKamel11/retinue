@@ -1485,7 +1485,8 @@ git commit -m "feat: the one hook - total decision table, ask on outward sends (
 ```python
 # tests/test_fleet_audit.py
 from pathlib import Path
-import subprocess, sys, textwrap
+import subprocess, sys
+import pytest
 from tools.fleet_audit import audit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1499,8 +1500,12 @@ def test_gates_import_outside_boundary_is_caught(tmp_path):
     findings = audit(tmp_path / "src" / "retinue")
     assert any("specialists_import_no_gates" in f for f in findings)
 
-def test_a_mention_in_a_docstring_is_not_an_import(tmp_path):
-    pkg = tmp_path / "src" / "retinue" / "specialists"; pkg.mkdir(parents=True)
+@pytest.mark.parametrize("where", ["specialists", "orchestration"])
+def test_a_mention_in_a_docstring_is_not_an_import(tmp_path, where):
+    # Both directories: `gate_hits` is computed location-blind and the ternary only picks the
+    # label, so this is symmetry with the two firing tests above rather than new coverage - the
+    # gate rule gets a planted SILENCE case outside specialists/ as well as a planted firing one.
+    pkg = tmp_path / "src" / "retinue" / where; pkg.mkdir(parents=True)
     (pkg / "ok.py").write_text('"""chaperone.gates.hook is discussed here, not imported."""\n')
     assert audit(tmp_path / "src" / "retinue") == []          # grep would flag this; AST must not
 
@@ -1523,8 +1528,7 @@ def test_a_missing_root_is_a_finding_not_silence():
 def test_a_shallow_from_import_of_the_gate_surface_is_caught(tmp_path):
     # `from chaperone import gates` puts the gate surface in the alias, not the module.
     pkg = tmp_path / "src" / "retinue" / "specialists"; pkg.mkdir(parents=True)
-    (pkg / "evil.py").write_text("from chaperone import gates
-")
+    (pkg / "evil.py").write_text("from chaperone import gates\n")
     findings = audit(tmp_path / "src" / "retinue")
     assert any("specialists_import_no_gates" in f for f in findings)
 
