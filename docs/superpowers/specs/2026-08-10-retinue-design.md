@@ -175,8 +175,13 @@ A list of **claims**, each carrying:
   containment, because without a boundary an invented "doc-12" matches the real "doc-1", so a
   fabricated citation validates and the escalation this contract exists to force never fires.
   Bare containment is the worse of the two errors: equality would at least refuse the fabrication.
-  Ties resolve by position then length, deterministically - the id appearing earliest is the one
-  being cited, and set iteration order is hash-seed dependent.
+  Ties resolve by position then length, deterministically, because set iteration order is
+  hash-seed dependent and a resolver that answers differently between runs cannot be reasoned
+  about. Earliest-position is a **heuristic, not a rule**: it prefers the cited id over one
+  appearing inside a qualifier, but any real id bounded anywhere in the string still resolves,
+  so "doc-99 (per doc-1, p.4)" resolves to doc-1 and a fabricated primary citation validates.
+  That residual is strictly narrower than bare containment and is named rather than hidden;
+  closing it means anchoring resolution to the leading token, which is a design change.
   Resolution checks existence; **support** - whether the source actually establishes the claim - is
   a judged question that lives in the eval lane, and the spec states that split.
 - `source_date: date` - **mandatory, no default**. Constructing an undated claim raises.

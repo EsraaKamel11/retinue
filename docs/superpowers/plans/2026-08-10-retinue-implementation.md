@@ -932,8 +932,11 @@ class MissingSource(ResearchValidationError):
 
 ```python
 # src/retinue/specialists/research.py
-"""The research specialist's contract. The prompt and validate_brief are a COUPLED PAIR:
-the prompt names the document-id convention the validator checks. Edit them together."""
+"""The research specialist's contract. The prompt and validate_brief are a COUPLED PAIR, and
+the prompt must name four conventions: the document-id citation, source_date, quantity_key
+grouping, and needs_identifier ambiguity. Only document-id resolution is machine-checked, by
+validate_brief; source_date is enforced at Claim construction, and quantity_key and
+needs_identifier are contract shape. Edit the prompt and this module together."""
 from __future__ import annotations
 import re
 from datetime import date
@@ -997,9 +1000,19 @@ RESEARCH_PROMPT = (
 )
 ```
 
-- [ ] **Step 4: Run to verify pass** - Expected: 6 passed.
-- [ ] **Step 5: Inertness proof, then commit** - stub `resolve_source` to return `"doc-1"`
-  unconditionally; the missing-source test goes RED; restore.
+- [ ] **Step 4: Run to verify pass** - Expected: 8 passed.
+- [ ] **Step 5: Inertness proofs, then commit** - one constraint removed at a time, the named
+  test red, everything else green, restored between:
+  1. Revert to bare containment (`d in source`, `max(hits, key=len)`) - the fabricated-id test
+     reddens. Note that the determinism test reddens only under SOME hash seeds: a single run
+     cannot reliably catch a seed-dependent resolver, which is the argument for removing the
+     non-determinism rather than testing around it.
+  2. Drop only the `(?!\w)` lookahead - the fabricated-id test reddens while the
+     qualified-citation test stays green, showing the boundary and not the rewrite is what
+     refuses fabrication.
+  3. Delete the prompt's `source_date` instruction - the convention loop reddens on that arm.
+     This is the proof a bare `"date"` arm could not give, since the word `candidates` supplies
+     that substring for free.
 
 ```bash
 git add src/retinue/specialists tests/specialists
