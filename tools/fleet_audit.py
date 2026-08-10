@@ -15,6 +15,10 @@ def _imports(tree: ast.AST) -> set[str]:
             out |= {a.name for a in node.names}
         elif isinstance(node, ast.ImportFrom) and node.module:
             out.add(node.module)
+            # `from chaperone import gates` names the gate surface in node.names, never in
+            # node.module, so a rule reading only the module stays silent on the most ordinary
+            # spelling of the import it exists to forbid.
+            out |= {f"{node.module}.{a.name}" for a in node.names}
     return out
 
 def _names_send_tool(tree: ast.AST) -> bool:
@@ -24,6 +28,11 @@ def _names_send_tool(tree: ast.AST) -> bool:
                for n in ast.walk(tree))
 
 def audit(root: Path) -> list[str]:
+    # A missing root makes rglob yield nothing, so every rule passes, the CLI exits 0 and the
+    # battery never reddens again - the guardrail failing silent exactly when the package it
+    # guards has been moved or renamed. Absence of files is not evidence of discipline.
+    if not root.is_dir():
+        return [f"audit_root_missing: {root}"]
     findings: list[str] = []
     send_homes: list[str] = []
     for py in sorted(root.rglob("*.py")):
