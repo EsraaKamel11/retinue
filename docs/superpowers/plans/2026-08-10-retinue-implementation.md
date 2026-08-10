@@ -956,7 +956,10 @@ class ResearchBrief(BaseModel):
     claims: tuple[Claim, ...]
 
 def resolve_source(source: str, doc_ids: frozenset[str]) -> str | None:
-    """Bounded containment, not equality and not bare containment.
+    r"""Bounded containment, not equality and not bare containment.
+
+    The r prefix is load-bearing: this docstring names the \b escape, and in a non-raw string
+    Python stores an actual backspace character instead of the two characters described.
 
     Equality is wrong because live models emit qualified citations ('doc-3 (filing, p.4)'), and
     it would reject every claim from a capture run that cannot cheaply be re-taken.
