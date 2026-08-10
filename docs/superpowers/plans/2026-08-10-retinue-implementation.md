@@ -1167,6 +1167,13 @@ def test_the_session_roster_drops_every_write_and_outbound_capability():
     # inheritance. Not None: an omitted roster inherits all tools from the parent.
     opts = build_options(_noop_hook)
     assert opts.tools is not None
+    # Two axes, neither subsuming the other. Equality pins PROVENANCE (the call site cannot
+    # widen the roster past the published constant); the literal restatement pins the CONSTANT
+    # itself, so a widening from any source with any name must be authored in two files -
+    # double entry, the ordinary control for a security-relevant declaration; and the denylist
+    # pins CONTENT, catching the dangerous names from either source.
+    assert opts.tools == list(SESSION_TOOLS)
+    assert list(SESSION_TOOLS) == ["Agent", "Task", "Read", "Grep", "Glob"]
     assert not ({"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & set(opts.tools))
 
 def test_the_session_roster_covers_every_declared_agent_roster():
