@@ -25,6 +25,7 @@ def test_missing_source_is_never_retryable_and_names_the_claim():
     with pytest.raises(MissingSource) as e:
         validate_brief(bad, DOCS)
     assert e.value.retryable is False
+    assert e.value.claim == "fund writes early checks"   # the test's name promises this
 
 def test_malformed_citation_is_retryable_and_carries_the_prior_value():
     bad = ResearchBrief(claims=(claim(source=""),))
@@ -36,7 +37,14 @@ def test_ambiguity_is_flagged_never_guessed():
     c = claim(needs_identifier=True, candidates=("Fund A", "Fund A II"))
     assert c.candidates == ("Fund A", "Fund A II")
 
-def test_prompt_and_validator_are_a_coupled_pair():
-    # The prompt must name the same conventions the validator checks - edited together.
-    assert "source" in RESEARCH_PROMPT and "document id" in RESEARCH_PROMPT
+def test_prompt_names_every_convention_the_contract_enforces():
+    # The prompt and the validator are a coupled pair, and this is the half a test can hold:
+    # every convention the contract enforces must be NAMED in the prompt, so a rewrite that
+    # drops one reddens. It cannot pin the prose's meaning - a prompt rewritten to say the
+    # opposite would still pass - which is why the pairing is stated at both definition sites.
+    for convention in ("document id",        # resolve_source
+                       "date",               # Claim.source_date, mandatory
+                       "quantity_key",       # the grouping key that lets a conflict be held
+                       "needs_identifier"):  # ambiguity flagged, never guessed
+        assert convention in RESEARCH_PROMPT, f"prompt never names {convention}"
     assert "refuse" in RESEARCH_PROMPT.lower()

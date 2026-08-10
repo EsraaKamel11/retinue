@@ -37,5 +37,7 @@ RESEARCH_PROMPT = (
     "Every claim MUST cite its source containing the exact document id (e.g. 'doc-3 (filing, p.4)')\n"
     "and carry the document's date. If no document supports a fact, refuse that claim entirely -\n"
     "never guess, never write a claim without a resolvable document id. If an entity is ambiguous,\n"
-    "set needs_identifier and list the candidates instead of choosing."
+    "set needs_identifier and list the candidates instead of choosing. When two documents report\n"
+    "different values for the same quantity, give both claims the same quantity_key and keep\n"
+    "both: annotate the conflict, never average it away and never pick a winner."
 )
