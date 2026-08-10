@@ -512,9 +512,11 @@ services:
     # 55432, not 5432: a locally installed Postgres commonly holds the default port.
     ports: ["55432:5432"]
     healthcheck:
-      # -d names the database: without it pg_isready can report healthy during the entrypoint's
-      # socket-only init phase, before the server accepts TCP connections.
-      test: ["CMD-SHELL", "pg_isready -U postgres -d retinue"]
+      # -h 127.0.0.1 is the load-bearing flag, not -d: pg_isready's exit status comes from
+      # PQping, which reports OK whenever the server answers at all, so -d cannot distinguish
+      # the entrypoint's socket-only init phase from a server accepting TCP. Forcing the TCP
+      # host makes the check fail while listen_addresses is still empty, which is the point.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d retinue"]
       interval: 2s
       timeout: 3s
       retries: 15
