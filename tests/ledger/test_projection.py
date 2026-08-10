@@ -34,13 +34,22 @@ def test_new_investor_is_a_true_zero_not_unavailable():
                             tier=2, send_cap=5)
     assert ctx is not None and ctx.sent_count == 0      # zero-because-new is a real fact
 
+def test_new_investor_projects_a_record_not_none():
+    # The mirror of test_new_investor_is_a_true_zero_not_unavailable, for the other function:
+    # a new investor is a record whose facts are absent, never the absence of a record.
+    rec = project_record(InMemoryStore(), "inv-9")
+    assert rec is not None
+    assert (rec.stated_check_size, rec.pass_reason, rec.last_contact) == (None, None, None)
+
 class BrokenStore:
     def append(self, tp): raise AssertionError
     def touchpoints_for(self, investor_id): raise StoreUnavailable("connection refused")
 
-def test_unavailable_store_is_none_never_zero():
+def test_unavailable_store_gives_no_act_context():
     assert build_act_context(BrokenStore(), "inv-1", granted_tools=frozenset(),
                              tier=2, send_cap=5) is None
+
+def test_unavailable_store_gives_no_record():
     assert project_record(BrokenStore(), "inv-1") is None
 
 def test_sent_count_counts_only_sends():
