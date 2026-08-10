@@ -2266,6 +2266,14 @@ from retinue.ledger.block import BLOCK_HEADER
 BLOCK_ONLY_FIELDS = ("stated_check_size", "pass_reason", "last_contact")
 
 def strip_block(prompt: str) -> str:
+    """Remove the block, or raise if there is none to remove.
+
+    COUPLING, load-bearing: this terminates at the block's end only because `render_block`
+    emits no internal blank line and exactly one trailing newline, so the first blank line
+    after the header IS the block's boundary. Beautifying the rendering with a blank line
+    inside it would make this strip the header alone, and the control would then pass while
+    demonstrating nothing - the precise vacuity the guard below exists to catch.
+    """
     if BLOCK_HEADER not in prompt:
         raise ValueError("no rendered block in this prompt; the control has nothing to strip")
     head, _, rest = prompt.partition(BLOCK_HEADER)
