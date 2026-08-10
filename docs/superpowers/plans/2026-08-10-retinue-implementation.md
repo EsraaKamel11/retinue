@@ -499,6 +499,20 @@ git commit -m "feat: the rendered block with budget and completeness raises (ine
   `["memory", "postgres"]` where postgres skips without `RETINUE_PG_DSN` and **fails** under
   `RETINUE_PG_REQUIRED=1`.
 
+- [ ] **Step 1a: Write `docker-compose.yml`** - one documented way to supply the DSN, pinned to
+  the same image the CI job uses. It is not the harness contract; any Postgres 16 will do.
+
+```yaml
+services:
+  postgres:
+    image: postgres:16.4
+    environment:
+      POSTGRES_PASSWORD: retinue
+      POSTGRES_DB: retinue
+    ports: ["5432:5432"]
+# Then: export RETINUE_PG_DSN=postgresql://postgres:retinue@localhost:5432/retinue
+```
+
 - [ ] **Step 1: Write `schema.sql`**
 
 ```sql
@@ -540,7 +554,8 @@ def _pg_store():
     if not dsn:
         if os.environ.get("RETINUE_PG_REQUIRED") == "1":
             pytest.fail("RETINUE_PG_REQUIRED=1 but RETINUE_PG_DSN is unset - the lane may not silently skip")
-        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped (set it to run; docker-compose.yml is one way)")
+        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped. "
+                    "Run `docker compose up -d` and export the DSN it prints, or point at any Postgres 16.")
     from retinue.ledger.postgres import PostgresStore, bootstrap
     bootstrap(dsn)
     return PostgresStore(dsn)
@@ -596,12 +611,15 @@ def test_projection_query_uses_the_named_index_not_a_seq_scan():
                      FROM generate_series(1, 5000) g ON CONFLICT DO NOTHING""")
         c.commit()
         c.execute("ANALYZE touchpoints")
-        c.execute("EXPLAIN (FORMAT TEXT) SELECT * FROM touchpoints WHERE investor_id='inv-7' ORDER BY occurred_at")
-        plan = "\n".join(r[0] for r in c.fetchall())
+        cur = c.execute("EXPLAIN (FORMAT TEXT) SELECT * FROM touchpoints"
+                        " WHERE investor_id='inv-7' ORDER BY occurred_at")
+        plan = "\n".join(r[0] for r in cur.fetchall())   # psycopg3: rows come off the CURSOR
         assert "idx_touchpoints_investor_ts" in plan, f"planner chose a different path:\n{plan}"
         assert "Seq Scan" not in plan, f"seq scan accepted would make this gate vacuous:\n{plan}"
 
 def test_concurrent_append_same_key_exactly_one_wins():
+    _conn().close()          # same guard as its siblings: an explanatory failure, never an
+                             # opaque AttributeError when the required lane has no DSN
     from concurrent.futures import ThreadPoolExecutor
     from datetime import datetime, timezone
     import uuid
@@ -633,15 +651,23 @@ import psycopg
 from psycopg.types.json import Jsonb
 from retinue.ledger.models import StoreUnavailable, Touchpoint
 
+#: Resolves from a source checkout only - the wheel ships `src/` and not this file. Bootstrapping
+#: is a test-and-CI operation, both of which run from a checkout, so that is the whole story.
 _SCHEMA = Path(__file__).resolve().parents[3] / "schema.sql"
 
 def bootstrap(dsn: str) -> None:
-    with psycopg.connect(dsn) as c:
-        c.execute(_SCHEMA.read_text(encoding="utf-8"))
+    if not _SCHEMA.is_file():
+        raise FileNotFoundError(
+            f"{_SCHEMA} is missing: bootstrap runs from a source checkout, not an installed wheel")
+    try:
+        with psycopg.connect(dsn) as c:
+            c.execute(_SCHEMA.read_text(encoding="utf-8"))
+    except psycopg.OperationalError as exc:
+        raise StoreUnavailable(str(exc)) from exc   # same translation as append/touchpoints_for
 
 class PostgresStore:
-    def __init__(self, dsn: str, table_suffix: str = "") -> None:
-        self._dsn = dsn        # suffix reserved for test isolation; single table in P1
+    def __init__(self, dsn: str) -> None:
+        self._dsn = dsn
 
     def append(self, tp: Touchpoint) -> bool:
         try:
