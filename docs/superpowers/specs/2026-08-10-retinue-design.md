@@ -169,9 +169,14 @@ All contracts are pydantic models with `output_type` binding in the offline lane
 A list of **claims**, each carrying:
 
 - `claim: str` and `evidence: str`
-- `source: str` - **must resolve to a fixture document id. Resolution is containment, not
-  equality**: live models emit qualified citations ("doc-3 (filing, p.4)"), never bare tokens, and
-  an equality check would fail every claim on the one capture run that cannot be cheaply re-taken.
+- `source: str` - **must resolve to a fixture document id. Resolution is BOUNDED containment**:
+  not equality, because live models emit qualified citations ("doc-3 (filing, p.4)") and equality
+  would fail every claim on the one capture run that cannot be cheaply re-taken; and not bare
+  containment, because without a boundary an invented "doc-12" matches the real "doc-1", so a
+  fabricated citation validates and the escalation this contract exists to force never fires.
+  Bare containment is the worse of the two errors: equality would at least refuse the fabrication.
+  Ties resolve by position then length, deterministically - the id appearing earliest is the one
+  being cited, and set iteration order is hash-seed dependent.
   Resolution checks existence; **support** - whether the source actually establishes the claim - is
   a judged question that lives in the eval lane, and the spec states that split.
 - `source_date: date` - **mandatory, no default**. Constructing an undated claim raises.

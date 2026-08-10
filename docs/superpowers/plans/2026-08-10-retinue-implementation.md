@@ -857,6 +857,19 @@ def test_source_resolution_is_containment_not_equality():
     assert resolve_source("doc-1 (filing, p.4)", DOCS) == "doc-1"   # qualified citation resolves
     assert resolve_source("doc-9", DOCS) is None
 
+def test_a_fabricated_id_that_extends_a_real_one_does_not_resolve():
+    # Bare containment matched "doc-12" against "doc-1", so an invented document validated and
+    # the escalation this contract exists to force never fired. This is the boundary's whole job.
+    assert resolve_source("doc-12 (filing, p.4)", DOCS) is None
+    assert resolve_source("doc-1000", DOCS) is None
+
+def test_resolution_is_deterministic_and_prefers_the_id_actually_cited():
+    # frozenset order is hash-seed dependent, so a resolver picking arbitrarily among matches
+    # answers differently between runs. Earliest position wins: the id inside the qualifier is
+    # not the one being cited.
+    assert resolve_source("doc-1 and doc-2 agree", DOCS) == "doc-1"
+    assert resolve_source("doc-1 (doc-2, p.4)", DOCS) == "doc-1"
+
 def test_undated_claim_cannot_be_constructed():
     with pytest.raises(Exception):
         Claim(claim="x", evidence="y", source="doc-1", confidence=0.5)   # no source_date
@@ -884,7 +897,9 @@ def test_prompt_names_every_convention_the_contract_enforces():
     # drops one reddens. It cannot pin the prose's meaning - a prompt rewritten to say the
     # opposite would still pass - which is why the pairing is stated at both definition sites.
     for convention in ("document id",        # resolve_source
-                       "date",               # Claim.source_date, mandatory
+                       "source_date",        # mandatory; NOT the bare word "date", which the
+                                             # word "candidates" supplies for free - that arm
+                                             # could not redden and so enforced nothing
                        "quantity_key",       # the grouping key that lets a conflict be held
                        "needs_identifier"):  # ambiguity flagged, never guessed
         assert convention in RESEARCH_PROMPT, f"prompt never names {convention}"
@@ -920,6 +935,7 @@ class MissingSource(ResearchValidationError):
 """The research specialist's contract. The prompt and validate_brief are a COUPLED PAIR:
 the prompt names the document-id convention the validator checks. Edit them together."""
 from __future__ import annotations
+import re
 from datetime import date
 from pydantic import BaseModel, ConfigDict, Field
 from retinue.specialists.failures import MalformedCitation, MissingSource
@@ -940,9 +956,24 @@ class ResearchBrief(BaseModel):
     claims: tuple[Claim, ...]
 
 def resolve_source(source: str, doc_ids: frozenset[str]) -> str | None:
-    """Containment, not equality: live models emit qualified citations ('doc-3 (filing, p.4)')."""
-    hits = [d for d in doc_ids if d in source]
-    return max(hits, key=len) if hits else None
+    """Bounded containment, not equality and not bare containment.
+
+    Equality is wrong because live models emit qualified citations ('doc-3 (filing, p.4)'), and
+    it would reject every claim from a capture run that cannot cheaply be re-taken.
+
+    BARE containment is worse than equality: with no boundary, an invented 'doc-12' matches the
+    real 'doc-1', so a fabricated citation validates and the escalation this contract exists to
+    force never fires. The lookarounds are what keep containment from resolving a document that
+    does not exist. They are used rather than \b so an id ending in punctuation still bounds.
+
+    Ties break on position, then length, then name - deterministically. Position first because
+    the id appearing earliest is the one being cited, not one that happens to appear inside the
+    qualifier; length and name after because frozenset iteration order is hash-seed dependent
+    and a resolver that answers differently between runs cannot be reasoned about.
+    """
+    hits = [(m.start(), -len(d), d) for d in doc_ids
+            if (m := re.search(rf"(?<!\w){re.escape(d)}(?!\w)", source))]
+    return min(hits)[2] if hits else None
 
 def validate_brief(brief: ResearchBrief, doc_ids: frozenset[str]) -> None:
     for c in brief.claims:
@@ -954,7 +985,8 @@ def validate_brief(brief: ResearchBrief, doc_ids: frozenset[str]) -> None:
 RESEARCH_PROMPT = (
     "You research investors from the provided fixture documents only.\n"
     "Every claim MUST cite its source containing the exact document id (e.g. 'doc-3 (filing, p.4)')\n"
-    "and carry the document's date. If no document supports a fact, refuse that claim entirely -\n"
+    "and carry the document's date in source_date. If no document supports a fact, refuse that\n"
+    "claim entirely -\n"
     "never guess, never write a claim without a resolvable document id. If an entity is ambiguous,\n"
     "set needs_identifier and list the candidates instead of choosing. When two documents report\n"
     "different values for the same quantity, give both claims the same quantity_key and keep\n"
