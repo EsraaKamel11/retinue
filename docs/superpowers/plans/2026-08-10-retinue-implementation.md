@@ -2204,10 +2204,56 @@ git commit -m "feat: frozen-judge replay - calibration and discrimination separa
 
 **Files:**
 - Create: `src/retinue/evals/control.py`
+- Modify: `src/retinue/ledger/block.py` (Step 0 below), `tests/ledger/test_block.py`
 - Test: `tests/evals/test_block_control.py`
 
 **Interfaces:**
 - Consumes: Task 3's `BLOCK_HEADER`, `render_block`; Task 2's `RelationshipRecord`.
+- Produces (Step 0): `BlockValueUnrenderable(Exception)` in `block.py`.
+
+- [ ] **Step 0: Close the producer-side hole before writing the consumer**
+
+Task 3's re-review pinned the structural invariant for a fixed fixture, and left this residue:
+`pass_reason` flows from `passed.payload.get("reason")`, so a stored reason containing a blank
+line renders a block with an internal blank line, and the stripper below then truncates at that
+line instead of the block's end. The control passes while demonstrating nothing, and the trigger
+is DATA rather than a developer edit - no one has to touch the code for it to happen. Refuse
+rather than sanitize, matching the module's existing doctrine: silently rewriting a recorded
+reason would make the block disagree with the ledger it projects.
+
+In `src/retinue/ledger/block.py`, add beside the other two exceptions:
+
+```python
+class BlockValueUnrenderable(Exception): ...
+```
+
+and, inside `render_block` after the completeness loop and before `lines` is built:
+
+```python
+    for name, value in vars(record).items():
+        if isinstance(value, str) and ("\n" in value or "\r" in value):
+            raise BlockValueUnrenderable(
+                f"{name} contains a line break, which would break the block's structure; "
+                "the control eval's stripper walks to the first blank line after the header"
+            )
+```
+
+Test in `tests/ledger/test_block.py`:
+
+```python
+def test_a_field_value_with_a_line_break_is_refused():
+    with pytest.raises(BlockValueUnrenderable, match="pass_reason"):
+        render_block(rec(pass_reason="too early\n\nrevisit next round"))
+
+def test_a_single_line_break_is_refused_too():
+    # Not only blank lines: any break lets a value forge a block line.
+    with pytest.raises(BlockValueUnrenderable, match="pass_reason"):
+        render_block(rec(pass_reason="too early\nlast_contact: 2099-01-01"))
+```
+
+Inertness: drop the `"\r" in value` term and confirm a carriage-return value renders; restore.
+Then drop the whole loop and confirm both tests redden. Import `BlockValueUnrenderable` in the
+test module.
 - Produces: `strip_block(prompt: str) -> str` (raises `ValueError` when no block is present -
   a stripper that strips nothing turns the control into proof of nothing);
   `BLOCK_ONLY_FIELDS = ("stated_check_size", "pass_reason", "last_contact")`;
