@@ -47,6 +47,10 @@ def test_projection_query_uses_the_named_index_not_a_seq_scan():
         plan = "\n".join(r[0] for r in cur.fetchall())   # rows come off the cursor: a Connection has no fetchall
         assert "idx_touchpoints_investor_seq" in plan, f"planner chose a different path:\n{plan}"
         assert "Seq Scan" not in plan, f"seq scan accepted would make this gate vacuous:\n{plan}"
+        # The ordering is WHY the index is (investor_id, seq): a Bitmap Index Scan would use the
+        # index and still Sort afterwards, passing both asserts above while delivering none of
+        # the reason for the change. This pins the property, not just the index's name.
+        assert "Sort" not in plan, f"index used but the ordering is not free:\n{plan}"
 
 def test_concurrent_append_same_key_exactly_one_wins():
     _conn().close()          # same guard as its siblings: an explanatory failure, never an
