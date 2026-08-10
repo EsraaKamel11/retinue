@@ -2,6 +2,7 @@
 imported deterministic lane on send payloads. The checker never runs here - it runs at the
 chokepoint inside the send tool body (P3). Unknown agent_type fails toward the human."""
 from __future__ import annotations
+import asyncio
 from chaperone.gates.sdk_callback import pre_tool_use_deny
 
 SEND_TOOL = "send_message"   # the ONE definition; the audit holds every other module to importing it
@@ -55,5 +56,13 @@ async def pre_tool_use(input_data: dict, tool_use_id, context) -> dict:
         # override the user's own permission configuration in the permissive direction, which is
         # the one direction a gate may never move it.
         return {}
+    except asyncio.CancelledError:
+        # Cooperative cancellation must propagate. The imported lane can swallow BaseException
+        # safely because its body contains NO `await`, so the loop has no suspension point to
+        # throw into - its own docstring says in as many words that adding one changes that
+        # claim. This body awaits the lane, so the claim does not transfer: converting a
+        # cancellation into an ask would make the router un-cancellable and could stall a
+        # shutdown, and a torn-down call is not a call waiting on a human.
+        raise
     except BaseException as exc:
         return _ask(f"the router could not complete: {type(exc).__name__}")

@@ -35,6 +35,16 @@ def test_a_malformed_payload_asks_rather_than_raising():
         out = asyncio.run(pre_tool_use(payload, None, None))
         assert out["hookSpecificOutput"]["permissionDecision"] == "ask"
 
+class _CancelOnRead(dict):
+    def get(self, *args, **kwargs):
+        raise asyncio.CancelledError()
+
+def test_cancellation_propagates_rather_than_becoming_an_ask():
+    # The imported lane's BaseException net is safe only because its body has no await; this
+    # one awaits that lane, so a cancellation caught here would make the router un-cancellable.
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(pre_tool_use(_CancelOnRead(), None, None))
+
 def test_main_thread_send_still_runs_the_deterministic_lane():
     p = load("provisional_send.json"); p.pop("agent_type")
     out = asyncio.run(pre_tool_use(p, None, None))
