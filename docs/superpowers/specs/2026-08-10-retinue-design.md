@@ -56,8 +56,16 @@ default dependency; it spawns nothing at import or construction time.) It contai
 
 - **Options-shape tests**: the orchestrator topology asserted AS DATA - the agents dict, each
   specialist's tool roster, `permissionMode`, `background=False` on every `AgentDefinition`, the
-  hook registration, and the orchestrator's own tool list being exactly the spawn tool and nothing
-  else (a config-sourced bound asserted where it lives).
+  hook registration, and the orchestrator's auto-approve list being exactly the spawn tool.
+  **The session roster is a shared ceiling, not a per-agent bound**, and the distinction is a
+  fact about the runtime rather than a preference: the CLI resolves each subagent's declared
+  tools by INTERSECTING them with the session list, so narrowing that list to the spawn tool
+  resolves every specialist to zero tools - silently, with every options-shape test still green.
+  The session roster's job is therefore to drop what NO agent needs (no Bash, Write, Edit,
+  WebFetch or WebSearch, which is why research cannot reach an outbound surface even by
+  inheritance); each specialist's bound is its own `AgentDefinition`; and the orchestrator's
+  bound is the auto-approve list plus the hook. A test asserts every declared roster is a subset
+  of the session roster, because a name missing from it resolves to nothing and says so nowhere.
 - **Hook-callback tests over captured payloads** (see 2.3): the deterministic lane's decisions
   replayed against recorded subagent tool-call payloads.
 - **Specialist tests** under `TestModel` / `FunctionModel` (pydantic-ai's own offline doubles).
@@ -126,7 +134,7 @@ ignored kwarg yields a green suite that tests nothing.
 
 | Agent | mode | tools | background | model tier | never |
 |---|---|---|---|---|---|
-| orchestrator | `default` | spawn tool only (both current and legacy names listed as data; which binds is runtime-only) | - | `sonnet-tier` | calls no external surface; drafts nothing; **holds no specialist tool** |
+| orchestrator | `default` | spawn tool only, by auto-approve list plus the hook (both current and legacy names listed as data; which binds is runtime-only). The session roster cannot express this: it is shared, and narrowing it here starves the specialists. | - | `sonnet-tier` | calls no external surface; drafts nothing; **holds no specialist tool** |
 | research | inherit | fixture-read tools only | **False** | `haiku-tier` | **no outbound tool exists in its session** |
 | drafting | inherit | ledger-read only | **False** | `haiku-tier` | no send tool; output goes to review |
 | conversation | inherit | send tool (gated) | **False** | `sonnet-tier` | send never executes without hook + chokepoint |
