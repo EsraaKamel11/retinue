@@ -27,6 +27,14 @@ def test_outward_send_returns_ask_shape():
 def test_research_read_passes_untouched():
     assert asyncio.run(pre_tool_use(load("provisional_research.json"), None, None)) == {}
 
+def test_a_malformed_payload_asks_rather_than_raising():
+    # A hook that raises fails OPEN - the platform contract is that an exception propagating
+    # out of a hook does not block the tool call. These are the two shapes that would raise
+    # ahead of the imported lane's own BaseException net, making its guard unreachable.
+    for payload in (None, {"tool_name": ["not", "a", "string"]}):
+        out = asyncio.run(pre_tool_use(payload, None, None))
+        assert out["hookSpecificOutput"]["permissionDecision"] == "ask"
+
 def test_main_thread_send_still_runs_the_deterministic_lane():
     p = load("provisional_send.json"); p.pop("agent_type")
     out = asyncio.run(pre_tool_use(p, None, None))
