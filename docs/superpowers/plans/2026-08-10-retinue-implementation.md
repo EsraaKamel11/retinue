@@ -1232,7 +1232,7 @@ AGENTS: dict[str, AgentDefinition] = {
 #: tests still green. Its real job is to drop what NO agent needs - Bash, Write, Edit, WebFetch
 #: and WebSearch are absent, so the research specialist cannot reach an outbound surface even
 #: by inheritance. Per-agent bounds live in each AgentDefinition; the orchestrator's own bound
-#: is `allowed_tools` plus the hook. `SESSION_TOOLS_COVER_EVERY_AGENT` pins the intersection.
+#: is `allowed_tools` plus the hook. The subset test below pins the intersection.
 SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob")
 
 def build_options(hook) -> ClaudeAgentOptions:
