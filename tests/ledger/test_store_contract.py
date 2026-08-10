@@ -1,55 +1,55 @@
 from datetime import datetime, timezone
-from decimal import Decimal
 import pytest
-from retinue.ledger.models import Touchpoint, KINDS
-from retinue.ledger.store import InMemoryStore
+from retinue.ledger.models import Touchpoint
 
 T0 = datetime(2030, 1, 5, tzinfo=timezone.utc)
 T1 = datetime(2030, 1, 6, tzinfo=timezone.utc)
 
-def tp(key="k1", kind="contact", investor="inv-1", occurred=T0, **payload):
-    return Touchpoint(idempotency_key=key, investor_id=investor, mandate_id="m-1",
+def tp(ns, key="k1", kind="contact", occurred=T0, **payload):
+    return Touchpoint(idempotency_key=f"{ns}-{key}", investor_id=f"inv-{ns}", mandate_id="m-1",
                       kind=kind, payload=payload, occurred_at=occurred, recorded_at=T1)
 
-def test_append_then_read_in_insertion_order():
-    s = InMemoryStore()
-    assert s.append(tp("a")) is True
-    assert s.append(tp("b", occurred=T1)) is True
-    keys = [t.idempotency_key for t in s.touchpoints_for("inv-1")]
-    assert keys == ["a", "b"]
+def test_append_then_read_in_insertion_order(store, ns):
+    assert store.append(tp(ns, "a")) is True
+    assert store.append(tp(ns, "b", occurred=T1)) is True
+    keys = [t.idempotency_key for t in store.touchpoints_for(f"inv-{ns}")]
+    assert keys == [f"{ns}-a", f"{ns}-b"]
 
-def test_duplicate_idempotency_key_is_refused_without_error():
-    s = InMemoryStore()
-    assert s.append(tp("a")) is True
-    assert s.append(tp("a")) is False          # same key: refused, not raised
-    assert len(s.touchpoints_for("inv-1")) == 1
+def test_duplicate_idempotency_key_is_refused_without_error(store, ns):
+    assert store.append(tp(ns, "a")) is True
+    assert store.append(tp(ns, "a")) is False
+    assert len(store.touchpoints_for(f"inv-{ns}")) == 1
 
-def test_touchpoints_are_frozen():
-    t = tp("a")
+def test_touchpoints_are_frozen(ns):
+    t = tp(ns, "a")
     with pytest.raises(Exception):
         t.kind = "sent"
 
-def test_unknown_kind_is_rejected_at_construction():
+def test_unknown_kind_is_rejected_at_construction(ns):
     with pytest.raises(Exception):
-        tp("a", kind="mutation")
+        tp(ns, "a", kind="mutation")
 
-def test_bitemporal_fields_are_distinct_and_required():
-    t = tp("a")
-    assert t.occurred_at != t.recorded_at      # world-time vs system-time both carried
+def test_bitemporal_fields_are_distinct_and_required(ns):
+    t = tp(ns, "a")
+    assert t.occurred_at != t.recorded_at
 
-def test_the_store_snapshots_payloads_at_append_and_at_read():
-    s = InMemoryStore()
-    t = tp("snap", usd="250000")
-    s.append(t)
-    t.payload["usd"] = "1"                                  # caller mutates its own object
-    assert s.touchpoints_for("inv-1")[0].payload["usd"] == "250000"
-    s.touchpoints_for("inv-1")[0].payload["usd"] = "9"      # reader mutates what it was handed
-    assert s.touchpoints_for("inv-1")[0].payload["usd"] == "250000"
-
-def test_idempotency_keys_are_globally_unique_not_per_investor():
+def test_idempotency_keys_are_globally_unique_not_per_investor(store, ns):
     # The schema makes idempotency_key the PRIMARY KEY: one namespace for every investor.
-    # Pinned here so an adapter with a per-investor unique index cannot pass this suite.
-    s = InMemoryStore()
-    assert s.append(tp("shared")) is True
-    assert s.append(tp("shared", investor="inv-2")) is False
-    assert s.touchpoints_for("inv-2") == ()
+    # Pinned so an adapter with a per-investor unique index cannot pass this suite.
+    first = tp(ns, "shared")
+    second = Touchpoint(**{**first.model_dump(), "investor_id": f"other-{ns}"})
+    assert store.append(first) is True
+    assert store.append(second) is False
+    assert store.touchpoints_for(f"other-{ns}") == ()
+
+def test_the_store_snapshots_payloads_at_append_and_at_read(store, ns):
+    # Postgres serialises payload into JSONB at write and rebuilds objects per read; the
+    # in-memory reference must snapshot at both barriers, or the two adapters disagree about
+    # whether a retained reference can rewrite an already-appended fact.
+    t = tp(ns, "snap", usd="250000")
+    store.append(t)
+    t.payload["usd"] = "1"                                        # caller mutates its own object
+    inv = f"inv-{ns}"
+    assert store.touchpoints_for(inv)[0].payload["usd"] == "250000"
+    store.touchpoints_for(inv)[0].payload["usd"] = "9"            # reader mutates what it got
+    assert store.touchpoints_for(inv)[0].payload["usd"] == "250000"
