@@ -1674,11 +1674,18 @@ on: [push]
 jobs:
   default-lane:
     runs-on: ubuntu-latest
+    strategy:
+      # Both ends of the range the manifest claims (requires-python >=3.11). Testing only the
+      # floor while developers run the ceiling lets a version-specific failure ship unseen:
+      # pydantic-graph emits a no-current-event-loop DeprecationWarning under run_sync on 3.13
+      # that 3.11 never shows, so "output pristine" means different things on each.
+      matrix:
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - run: pip install -r requirements.txt
       - run: python -m pytest -q            # no daemon, no network, no key
   postgres-lane:
