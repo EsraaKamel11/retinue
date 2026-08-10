@@ -134,7 +134,7 @@ ignored kwarg yields a green suite that tests nothing.
 
 | Agent | mode | tools | background | model tier | never |
 |---|---|---|---|---|---|
-| orchestrator | `default` | spawn tool only, by auto-approve list plus the hook (both current and legacy names listed as data; which binds is runtime-only). The session roster cannot express this: it is shared, and narrowing it here starves the specialists. | - | `sonnet-tier` | calls no external surface; drafts nothing; **holds no specialist tool** |
+| orchestrator | `default` | reaches the session ceiling: the spawn tool plus the read tools. **Live-witnessed at CLI 2.1.222: `allowed_tools` does not restrict, it only pre-approves** - the orchestrator called `Glob` with `allowed_tools` holding the spawn names alone. The session roster cannot narrow it either, being shared and intersected per agent. So the honest bound is the ceiling: no write tool and no outbound tool exists in the session at all. `Agent` is the name that binds; `Task` is carried as data. | - | `sonnet-tier` | calls no external surface; drafts nothing; **holds no outward tool** - and holds no write tool, because none exists in the session. It does reach the read tools, which live-capture confirms it uses; the earlier claim that it holds no specialist tool was contradicted by real data |
 | research | inherit | fixture-read tools only | **False** | `haiku-tier` | **no outbound tool exists in its session** |
 | drafting | inherit | ledger-read only | **False** | `haiku-tier` | no send tool; output goes to review |
 | conversation | inherit | send tool (gated) | **False** | `sonnet-tier` | send never executes without hook + chokepoint |
