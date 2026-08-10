@@ -1352,6 +1352,16 @@ def test_a_malformed_payload_asks_rather_than_raising():
         out = asyncio.run(pre_tool_use(payload, None, None))
         assert out["hookSpecificOutput"]["permissionDecision"] == "ask"
 
+class _CancelOnRead(dict):
+    def get(self, *args, **kwargs):
+        raise asyncio.CancelledError()
+
+def test_cancellation_propagates_rather_than_becoming_an_ask():
+    # The imported lane's BaseException net is safe only because its body has no await; this
+    # one awaits that lane, so a cancellation caught here would make the router un-cancellable.
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(pre_tool_use(_CancelOnRead(), None, None))
+
 def test_main_thread_send_still_runs_the_deterministic_lane():
     p = load("provisional_send.json"); p.pop("agent_type")
     out = asyncio.run(pre_tool_use(p, None, None))
@@ -1373,6 +1383,7 @@ def test_main_thread_send_still_runs_the_deterministic_lane():
 imported deterministic lane on send payloads. The checker never runs here - it runs at the
 chokepoint inside the send tool body (P3). Unknown agent_type fails toward the human."""
 from __future__ import annotations
+import asyncio
 from chaperone.gates.sdk_callback import pre_tool_use_deny
 
 SEND_TOOL = "send_message"   # the ONE definition; the audit holds every other module to importing it
@@ -1418,6 +1429,14 @@ async def pre_tool_use(input_data: dict, tool_use_id, context) -> dict:
         if tool_name in SEND_TOOLS:
             return await pre_tool_use_deny(input_data, tool_use_id, context)
         return {}
+    except asyncio.CancelledError:
+        # Cooperative cancellation must propagate. The imported lane can swallow BaseException
+        # safely because its body contains NO `await`, so the loop has no suspension point to
+        # throw into - its own docstring says in as many words that adding one changes that
+        # claim. This body awaits the lane, so the claim does not transfer: converting a
+        # cancellation into an ask would make the router un-cancellable and could stall a
+        # shutdown, and a torn-down call is not a call waiting on a human.
+        raise
     except BaseException as exc:
         return _ask(f"the router could not complete: {type(exc).__name__}")
 ```
