@@ -1149,12 +1149,19 @@ def test_every_agent_is_foreground():
         assert getattr(d, "background", None) is False, f"{name} must set background=False"
 
 def test_research_has_no_outbound_tool_at_all():
+    # `is not None` first: `tools=None` makes the roster check below vacuous AND is the
+    # dangerous value, since the SDK drops None fields and the subagent then inherits the
+    # CLI default roster rather than an empty one.
+    assert AGENTS["research"].tools is not None
     tools = AGENTS["research"].tools or []
     assert all("send" not in t.lower() for t in tools)
     assert "WebFetch" not in tools and "WebSearch" not in tools
 
 def test_orchestrator_holds_only_the_spawn_tool():
     opts = build_options(_noop_hook)
+    # The ROSTER, not just the approval list: allowed_tools alone would leave tools=None, so the
+    # orchestrator would hold the full default roster with only these pre-approved.
+    assert opts.tools == list(SPAWN_TOOLS)
     assert set(opts.allowed_tools) == set(SPAWN_TOOLS)   # both names as data; runtime binds one
 
 def test_tiers_use_the_imported_vocabulary_exactly():
@@ -1205,8 +1212,14 @@ AGENTS: dict[str, AgentDefinition] = {
 }
 
 def build_options(hook) -> ClaudeAgentOptions:
+    # `tools` is the ROSTER; `allowed_tools` is only the auto-approve list. Setting the second
+    # alone leaves `tools=None`, which means the orchestrator keeps the full default roster and
+    # merely needs approval for the rest of it - the opposite of the blast radius this table
+    # publishes. Least privilege first: a tool the agent never held cannot be misused, while a
+    # tool it holds behind a permission prompt is one approval away.
     return ClaudeAgentOptions(
         agents=AGENTS,
+        tools=list(SPAWN_TOOLS),
         allowed_tools=list(SPAWN_TOOLS),
         permission_mode="default",
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[hook])]},
