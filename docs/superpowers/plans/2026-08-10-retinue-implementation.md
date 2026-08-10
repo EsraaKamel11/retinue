@@ -1515,6 +1515,19 @@ def test_a_send_tool_mention_in_a_docstring_is_not_a_definition(tmp_path):
     (pkg / "ok.py").write_text('"""The send_message tool is discussed here, not defined."""\n')
     assert audit(tmp_path / "src" / "retinue") == []              # equality, not substring
 
+def test_a_missing_root_is_a_finding_not_silence():
+    # rglob over a nonexistent directory returns nothing without error, so every rule would
+    # pass. This test is the only control on the real-tree test measuring anything at all.
+    assert any("audit_root_missing" in f for f in audit(ROOT / "src" / "no_such_package"))
+
+def test_a_shallow_from_import_of_the_gate_surface_is_caught(tmp_path):
+    # `from chaperone import gates` puts the gate surface in the alias, not the module.
+    pkg = tmp_path / "src" / "retinue" / "specialists"; pkg.mkdir(parents=True)
+    (pkg / "evil.py").write_text("from chaperone import gates
+")
+    findings = audit(tmp_path / "src" / "retinue")
+    assert any("specialists_import_no_gates" in f for f in findings)
+
 def test_cli_exit_codes():
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "fleet_audit.py")], capture_output=True)
     assert r.returncode == 0
@@ -1542,6 +1555,10 @@ def _imports(tree: ast.AST) -> set[str]:
             out |= {a.name for a in node.names}
         elif isinstance(node, ast.ImportFrom) and node.module:
             out.add(node.module)
+            # `from chaperone import gates` names the gate surface in node.names, never in
+            # node.module, so a rule reading only the module stays silent on the most ordinary
+            # spelling of the import it exists to forbid.
+            out |= {f"{node.module}.{a.name}" for a in node.names}
     return out
 
 def _names_send_tool(tree: ast.AST) -> bool:
@@ -1551,6 +1568,11 @@ def _names_send_tool(tree: ast.AST) -> bool:
                for n in ast.walk(tree))
 
 def audit(root: Path) -> list[str]:
+    # A missing root makes rglob yield nothing, so every rule passes, the CLI exits 0 and the
+    # battery never reddens again - the guardrail failing silent exactly when the package it
+    # guards has been moved or renamed. Absence of files is not evidence of discipline.
+    if not root.is_dir():
+        return [f"audit_root_missing: {root}"]
     findings: list[str] = []
     send_homes: list[str] = []
     for py in sorted(root.rglob("*.py")):
