@@ -2884,6 +2884,7 @@ import pytest
 from chaperone.gates.checker import Checker, CheckerUnavailable, FlagForReview, Verdict
 from chaperone.policy.types import Draft, Message, Record
 from retinue.boundary.checker_lane import build_checker, register_of, scripted_transport
+from retinue.boundary.hook import SEND_TOOL
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "verdicts" / "checker_scripted.json"
 
