@@ -526,8 +526,9 @@ services:
 ```sql
 -- schema.sql: idempotent, and the whole migration story FOR P1 - creates, plus two DROP TRIGGER
 -- statements that keep their creates re-runnable (CREATE TRIGGER has no IF NOT EXISTS). The one
--- exception is DROP INDEX IF EXISTS below: that is the file's single real migration action, and
--- it retires an index an earlier revision created. A column added later would need its own ALTER, since CREATE
+-- exception is DROP INDEX IF EXISTS below: it is the file's only destructive migration action,
+-- retiring an index an earlier revision created, where every other statement reaches an existing
+-- database only by adding what it finds missing. A column added later would need its own ALTER, since CREATE
 -- TABLE IF NOT EXISTS no-ops on an existing table and would report success while the new column
 -- never appeared.
 CREATE TABLE IF NOT EXISTS touchpoints (
