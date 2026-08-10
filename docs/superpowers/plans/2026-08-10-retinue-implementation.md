@@ -1139,7 +1139,8 @@ git commit -m "feat: the research agent under FunctionModel (inertness: escalati
 
 ```python
 # tests/orchestration/test_topology.py
-from retinue.orchestration.topology import AGENTS, SPAWN_TOOLS, TIERS, build_options
+from retinue.orchestration.topology import (AGENTS, SESSION_TOOLS, SPAWN_TOOLS, TIERS,
+                                            build_options)
 
 async def _noop_hook(input_data, tool_use_id, context):
     return {}
@@ -1157,12 +1158,26 @@ def test_research_has_no_outbound_tool_at_all():
     assert all("send" not in t.lower() for t in tools)
     assert "WebFetch" not in tools and "WebSearch" not in tools
 
-def test_orchestrator_holds_only_the_spawn_tool():
+def test_orchestrator_is_pre_approved_for_the_spawn_tool_only():
     opts = build_options(_noop_hook)
-    # The ROSTER, not just the approval list: allowed_tools alone would leave tools=None, so the
-    # orchestrator would hold the full default roster with only these pre-approved.
-    assert opts.tools == list(SPAWN_TOOLS)
     assert set(opts.allowed_tools) == set(SPAWN_TOOLS)   # both names as data; runtime binds one
+
+def test_the_session_roster_drops_every_write_and_outbound_capability():
+    # A real narrowing, and the reason research cannot reach an outbound surface even by
+    # inheritance. Not None: an omitted roster inherits all tools from the parent.
+    opts = build_options(_noop_hook)
+    assert opts.tools is not None
+    assert not ({"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & set(opts.tools))
+
+def test_the_session_roster_covers_every_declared_agent_roster():
+    # The CLI intersects each subagent's declared tools with the session roster, so a name in
+    # an AgentDefinition that is missing here resolves to nothing - silently, with every other
+    # test in this file still green. This is the assertion that makes that coupling visible.
+    opts = build_options(_noop_hook)
+    for name, definition in AGENTS.items():
+        missing = set(definition.tools or ()) - set(opts.tools)
+        assert not missing, f"{name} declares {sorted(missing)}, absent from the session roster"
+
 
 def test_tiers_use_the_imported_vocabulary_exactly():
     from chaperone.gates.checker import MODEL_STRENGTH
@@ -1211,15 +1226,23 @@ AGENTS: dict[str, AgentDefinition] = {
         prompt="Converse; sending is gated.", tools=["Read"], background=False),
 }
 
+#: The SESSION roster. The CLI resolves each subagent's declared tools by INTERSECTING them
+#: with this list, so it is a shared ceiling and not a per-agent bound: narrowing it to the
+#: spawn tool alone resolves every specialist to zero tools, silently, with the options-shape
+#: tests still green. Its real job is to drop what NO agent needs - Bash, Write, Edit, WebFetch
+#: and WebSearch are absent, so the research specialist cannot reach an outbound surface even
+#: by inheritance. Per-agent bounds live in each AgentDefinition; the orchestrator's own bound
+#: is `allowed_tools` plus the hook. `SESSION_TOOLS_COVER_EVERY_AGENT` pins the intersection.
+SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob")
+
 def build_options(hook) -> ClaudeAgentOptions:
-    # `tools` is the ROSTER; `allowed_tools` is only the auto-approve list. Setting the second
-    # alone leaves `tools=None`, which means the orchestrator keeps the full default roster and
-    # merely needs approval for the rest of it - the opposite of the blast radius this table
-    # publishes. Least privilege first: a tool the agent never held cannot be misused, while a
-    # tool it holds behind a permission prompt is one approval away.
+    # `tools` is the session roster; `allowed_tools` is the auto-approve list. Both are set:
+    # omitting `tools` inherits the CLI default (the agent-definition schema says an omitted
+    # roster "inherits all tools from parent"), and omitting `allowed_tools` would leave the
+    # orchestrator's spawn-only bound unstated.
     return ClaudeAgentOptions(
         agents=AGENTS,
-        tools=list(SPAWN_TOOLS),
+        tools=list(SESSION_TOOLS),
         allowed_tools=list(SPAWN_TOOLS),
         permission_mode="default",
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[hook])]},
