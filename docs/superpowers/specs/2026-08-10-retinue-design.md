@@ -476,6 +476,7 @@ a graph-checkpointer for escalation durability (the queue plus Postgres is the d
 | Matching staging + ablation harness | **Built (imported: `src/chaperone/matching/`)** |
 | Orchestration options + hook + routing | Designed (P1) |
 | Research agent + ResearchBrief contract | Designed (P1) |
+| Contested-quantity rendering + thin-support badge | Designed only - the contract carries `quantity_key` so a conflict can be HELD, and the prompt now instructs the model to group by it, but nothing renders a Contested quantity or a thin-support badge. Annotate-not-arbitrate is the commitment; surfacing the annotation is unbuilt. |
 | Ledger schema, projection, `ActContext` feed | Designed (P1) |
 | Live capture smoke + payload fixtures | Designed (P1) |
 | Matching integration + ranking evaluators + OutcomeRecord | Designed (P2) |
