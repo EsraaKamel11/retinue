@@ -522,9 +522,10 @@ services:
 - [ ] **Step 1: Write `schema.sql`**
 
 ```sql
--- schema.sql: idempotent, and the whole migration story FOR P1 - every statement is a create.
--- A column added later would need its own ALTER, since CREATE TABLE IF NOT EXISTS no-ops on an
--- existing table and would report success while the new column never appeared.
+-- schema.sql: idempotent, and the whole migration story FOR P1 - creates, plus the drops that
+-- keep those creates re-runnable. A column added later would need its own ALTER, since CREATE
+-- TABLE IF NOT EXISTS no-ops on an existing table and would report success while the new column
+-- never appeared.
 CREATE TABLE IF NOT EXISTS touchpoints (
     idempotency_key TEXT PRIMARY KEY,
     investor_id     TEXT NOT NULL,
