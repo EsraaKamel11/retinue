@@ -30,9 +30,22 @@ AGENTS: dict[str, AgentDefinition] = {
         prompt="Converse; sending is gated.", tools=["Read"], background=False),
 }
 
+#: The SESSION roster. The CLI resolves each subagent's declared tools by INTERSECTING them
+#: with this list, so it is a shared ceiling and not a per-agent bound: narrowing it to the
+#: spawn tool alone resolves every specialist to zero tools, silently, with the options-shape
+#: tests still green. Its real job is to drop what NO agent needs - Bash, Write, Edit, WebFetch
+#: and WebSearch are absent, so the research specialist cannot reach an outbound surface even
+#: by inheritance. Per-agent bounds live in each AgentDefinition; the orchestrator's own bound
+#: is `allowed_tools` plus the hook.
+SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob")
+
 def build_options(hook) -> ClaudeAgentOptions:
+    # `tools` is the session roster; `allowed_tools` is the auto-approve list. Both are set:
+    # omitting `tools` inherits the CLI default, and omitting `allowed_tools` would leave the
+    # orchestrator's spawn-only bound unstated.
     return ClaudeAgentOptions(
         agents=AGENTS,
+        tools=list(SESSION_TOOLS),
         allowed_tools=list(SPAWN_TOOLS),
         permission_mode="default",
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[hook])]},

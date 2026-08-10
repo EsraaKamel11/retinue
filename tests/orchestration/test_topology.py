@@ -1,6 +1,6 @@
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
-from retinue.orchestration.topology import AGENTS, SPAWN_TOOLS, TIERS, build_options
+from retinue.orchestration.topology import AGENTS, SESSION_TOOLS, SPAWN_TOOLS, TIERS, build_options
 
 async def _noop_hook(input_data, tool_use_id, context):
     return {}
@@ -20,9 +20,25 @@ def test_research_has_no_outbound_tool_at_all():
     assert all("send" not in t.lower() for t in tools)
     assert "WebFetch" not in tools and "WebSearch" not in tools
 
-def test_orchestrator_holds_only_the_spawn_tool():
+def test_orchestrator_is_pre_approved_for_the_spawn_tool_only():
     opts = build_options(_noop_hook)
     assert set(opts.allowed_tools) == set(SPAWN_TOOLS)   # both names as data; runtime binds one
+
+def test_the_session_roster_drops_every_write_and_outbound_capability():
+    # A real narrowing, and the reason research cannot reach an outbound surface even by
+    # inheritance. Not None: an omitted roster inherits all tools from the parent.
+    opts = build_options(_noop_hook)
+    assert opts.tools is not None
+    assert not ({"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & set(opts.tools))
+
+def test_the_session_roster_covers_every_declared_agent_roster():
+    # The CLI intersects each subagent's declared tools with the session roster, so a name in
+    # an AgentDefinition that is missing here resolves to nothing - silently, with every other
+    # test in this file still green. This is the assertion that makes that coupling visible.
+    opts = build_options(_noop_hook)
+    for name, definition in AGENTS.items():
+        missing = set(definition.tools or ()) - set(opts.tools)
+        assert not missing, f"{name} declares {sorted(missing)}, absent from the session roster"
 
 def test_tiers_use_the_imported_vocabulary_exactly():
     from chaperone.gates.checker import MODEL_STRENGTH
