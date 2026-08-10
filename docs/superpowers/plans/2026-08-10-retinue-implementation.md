@@ -25,7 +25,10 @@ disagree, the spec wins.
   turns skip into fail via `RETINUE_PG_REQUIRED=1`.
 - **Never `pip install chaperone`** - the wheel at `vendor/chaperone-0.1.0-py3-none-any.whl` only.
 - Org-name-free and client-token-free repo. The battery greps: em dashes · the two banned
-  certainty adjectives (word-bounded; never spelled in any tracked file, this one included) ·
+  certainty adjectives (**word-bounded**, `grep -w`; never spelled in any tracked file, this one
+  included. A substring check is WRONG and produces false positives: "provenance" contains one of
+  them, and `vendor/PROVENANCE.md` records the vendored wheel's origin. Never rename correct
+  English to satisfy a check that should not have fired) ·
   client and organisation tokens from the untracked local list · stale model ids · the removed
   pydantic-ai 2.x result kwarg. Run before every commit that touches docs.
 - Money is `Decimal`, never float; money comparisons use a tolerance, never `==`.
