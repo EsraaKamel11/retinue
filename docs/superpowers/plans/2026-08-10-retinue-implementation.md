@@ -2424,7 +2424,13 @@ def candidate_for(row: dict, store: TouchpointStore, *, now: datetime) -> Candid
         id=row["investor_id"],
         check_size_max=str(row["check_ceiling"]) if row.get("check_ceiling") is not None else None,
         stage=row.get("stage"), sector=row.get("sector"), geography=row.get("geography"),
-        jurisdiction=rec.jurisdiction or row.get("jurisdiction"),
+        # `is not None`, not truthiness: an identity touchpoint carrying an EMPTY
+        # jurisdiction is the ledger saying "no consent recorded", which is a different
+        # fact from having no identity record at all. Under `or` both collapse to the
+        # roster row, so a malformed identity is silently readmitted by less trustworthy
+        # data - the permissive direction, triggered by data rather than by an edit.
+        jurisdiction=(rec.jurisdiction if rec.jurisdiction is not None
+                      else row.get("jurisdiction")),
         days_since_touch=(now - rec.last_contact).days if rec.last_contact else None,
         prior_passes=passes,
     )
