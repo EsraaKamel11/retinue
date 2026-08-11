@@ -2471,14 +2471,21 @@ git commit -m "feat: matching integration"
 - [ ] **Step 1: Write `fixtures/gold_rankings.json`** (hand-authored, judged, frozen; figures
   invented):
 
-```json
-{"meta": {"hand_authored": true,
-          "note": "gold shortlists over the seed-7 synthetic roster; judged by hand, frozen"},
- "cases": [
-  {"name": "warm-relationship-wins", "seed": 7, "n": 8, "expected_top": "synth-003"},
-  {"name": "cold-start-carried-by-similarity", "seed": 7, "n": 8, "expected_top": "synth-005"}
- ]}
-```
+Write it from the SHIPPED fixture at `fixtures/gold_rankings.json` rather than from a guess.
+The first draft of this block read `"n": 8`, and on that substrate seed 7's eight rows fall into
+eight DISTINCT (sector, stage, geography) cells - so any mandate admits exactly one candidate, a
+gold over a one-candidate shortlist is a tautology, and the cold-start case cannot fall at all.
+`n` is a fixture field, so the fixture moved and the metric did not. Two properties the shipped
+file carries that this draft lacked, both load-bearing:
+
+- **each case names its own `mandate`.** Deriving the mandate from the gold row, as the draft's
+  tests did, builds the question out of the answer.
+- **each case freezes its `eligible_cell`**, so a cell that quietly collapses to one candidate
+  reddens instead of passing.
+
+`n = 33` is the first n at which seed 7 offers two cells holding three rivals each, and
+`generate_rosters(7, 33)[:8] == generate_rosters(7, 8)`, so Task 10's frozen digest substrate
+survives unchanged as a prefix.
 
 (After Task 10's generator is extended, regenerate expectations by inspecting
 `generate_rosters(7, 8)` once and choosing two defensible golds by hand - the point is a frozen
@@ -2522,9 +2529,12 @@ def test_the_metric_notices_a_null_embedder_on_the_cold_start_case():
                        / "gold_rankings.json").read_text(encoding="utf-8"))
     case = next(c for c in gold["cases"] if c["name"] == "cold-start-carried-by-similarity")
     rows = list(generate_rosters(case["seed"], case["n"]))
-    top = next(r for r in rows if r["investor_id"] == case["expected_top"])
-    mandate = Mandate(check_size_min="100000", stage=top["stage"], sector=top["sector"],
-                      geography=top["geography"], consented_jurisdictions=frozenset({"US", "UK", "DE"}))
+    # The mandate comes from the CASE, never from the gold row: deriving it from the answer
+    # makes the question a restatement of the answer.
+    m = case["mandate"]
+    mandate = Mandate(check_size_min=m["check_size_min"], stage=m["stage"], sector=m["sector"],
+                      geography=m["geography"],
+                      consented_jurisdictions=frozenset(m["consented_jurisdictions"]))
     now = datetime(2030, 3, 1, tzinfo=timezone.utc)
     favouring = ranked_ids(rows, mandate, lambda c: 0.99 if c.id == case["expected_top"] else 0.1,
                            InMemoryStore(), now)
