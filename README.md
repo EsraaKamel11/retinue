@@ -37,7 +37,7 @@ install with its dev extra. Python >=3.11.
 ## The three lanes
 
 **Default lane** - `python -m pytest`. No daemon, no network, no key, on a fresh clone. At this
-commit: 72 passed, 7 skipped, the 7 being the Postgres lane below. It holds the options-shape
+commit: 75 passed, 7 skipped, the 7 being the Postgres lane below. It holds the options-shape
 tests, the hook callback replayed against captured payloads, the specialist tests under
 pydantic-ai's own offline doubles, and the ledger contract tests against an in-memory reference
 store.
@@ -74,9 +74,9 @@ Its patterns are constructed rather than spelled, so the script passes the batte
 instead of exempting itself. Every gate asserts a magnitude and not merely a non-zero, because
 "nothing found" and "nothing looked" print the same word:
 
-- each gate first runs its own invocation, flags and all, against a specimen built to violate it,
-  and reddens as INERT if it finds nothing there, so a pattern that has quietly stopped matching
-  cannot go on reporting ok;
+- each gate first runs its own invocation, flags and all, against one specimen per branch of its
+  pattern, all of which have to hit, and reddens as INERT otherwise - a single specimen would only
+  show a pattern is not totally dead, and half a dead gate reports ok just as convincingly;
 - the scan is held to a floor on tracked files rather than to "more than zero", and a positive
   control asserts the counting machinery returns hits at all;
 - the suite gate is held to a floor on the pass count, parsed from pytest's own summary, because
@@ -85,6 +85,9 @@ instead of exempting itself. Every gate asserts a magnitude and not merely a non
 
 That last guard earned its place by being caught rather than foreseen: a grep build that aborts on
 one flag combination printed nothing, and the gate scored the silence as a clean pass.
+
+The plan's Task 11 section embeds this script verbatim, and a test in the default lane holds the
+two byte-identical, so a plan describing gates the script no longer has is a red suite.
 
 The client-and-organisation token pass reads `tools/banned_tokens.txt`, which is **untracked and
 gitignored on purpose**: a tracked list would ship into a reviewer's clone the very tokens it

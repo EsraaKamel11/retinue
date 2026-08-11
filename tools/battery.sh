@@ -4,11 +4,12 @@
 # Patterns are CONSTRUCTED, never spelled: every tracked file - this script and the plan section
 # that embeds it included - has to pass the battery it defines. A gate whose own pattern appears
 # literally in a file it scans can only be made green by exempting something, and an exemption is
-# how a gate stops measuring.
+# how a gate stops measuring. The plan's embedded copy is held byte-identical to this file by
+# tests/test_plan_sync.py, so the document and the artifact cannot drift apart quietly.
 #
 # Every gate here asserts a MAGNITUDE, not merely a non-zero. "Nothing found" and "nothing looked"
-# print the same word, so each gate proves it can still find a violation before its zero is
-# believed, the scan proves its scope, and the suite proves its pass count.
+# print the same word, so each gate proves it can still find a violation of EVERY BRANCH it relies
+# on before its zero is believed, the scan proves its scope, and the suite proves its pass count.
 #
 #   bash tools/battery.sh
 #   PYTHON=/path/to/python bash tools/battery.sh   # when `python` on PATH is not the venv's
@@ -29,8 +30,10 @@ say() { printf '%-40s %s\n' "$1" "$2"; }
 # Floors, not counts, and both sit deliberately below what the tree holds today: ordinary growth
 # and the odd deletion stay quiet, while a COLLAPSE reddens. A pathspec that stops matching, or a
 # suite that stops collecting, is the failure these two numbers exist for.
-FILE_FLOOR=40   # tracked files scanned; 49 at the time of writing
-PASS_FLOOR=72   # tests that must PASS; 72 passed and 7 skipped at the time of writing
+FILE_FLOOR=40   # tracked files scanned; 50 at the time of writing
+PASS_FLOOR=72   # tests that must PASS; the tree holds 75 passed and 7 skipped, and the floor
+                # trails on purpose - a floor raised to equality reddens on the first added test
+                # and gets exempted, which is how a gate stops measuring
 
 TMP=$(mktemp -d) || { printf 'battery: could not make a temp dir\n' >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
@@ -59,29 +62,50 @@ scan() {  # scan <grep flags> <pattern> <file>...
   fi
 }
 
-# gate <label> <grep flags> <pattern> <specimen>
+# gate <label> <grep flags> <pattern> <specimen>...
 #
-# The specimen is a string this gate MUST match. Before any zero from the tree is believed, the
-# gate's own invocation - the same flags, the same pattern - runs against a file built to violate
-# it, and a gate that finds nothing there is INERT and reddens by name.
+# Each specimen is a string this gate MUST match. Before any zero from the tree is believed, the
+# gate's own invocation - the same flags, the same pattern - runs against every specimen in turn,
+# and a specimen that goes unmatched makes the gate INERT and reddens it by name.
 #
-# Without this, a gate can go permanently silent and no control notices. Drop -E from the stale-id
-# gate below and its alternation becomes a literal pipe: the pattern then matches a string that
-# occurs nowhere on earth, and reports ok forever. The scope floor proves files were read and the
-# positive control proves the machinery reads them; only this proves each PATTERN still works.
+# ONE PER BRANCH, because a single specimen only shows the pattern is not TOTALLY dead. Retarget
+# the stale-id alternation's far branch at a version that occurs nowhere, leave the bracket branch
+# intact, and a one-specimen self-test still reports ok with half the gate dead. That alternation
+# therefore names three specimens, covering both ends of the bracket expression and the far side
+# of the pipe. (Phrased without naming the branch, because naming it would spell a stale id in a
+# file this gate scans. The battery caught precisely that in this comment's first draft: three
+# hits across this file and the plan's copy of it, which is the rule firing on the comment that
+# explains the rule.)
+#
+# A flag counts as a branch when the tree does not already police it. Dropping `-i` from the
+# adjective gates would redden nothing, since no tracked file spells either word capitalised, so
+# each adjective gate carries a capitalised specimen. Dropping `-w` needs no anti-specimen: the
+# gate would then match "provenance", `vendor/PROVENANCE.md` exists, and the tree scan itself goes
+# red - which is the difference between a flag that is unexercised and one that is unenforced.
 gate() {
-  local label=$1 flags=$2 pat=$3 specimen=$4 probe n
-  printf '%s\n' "$specimen" > "$TMP/specimen"
-  probe=$(scan "$flags" "$pat" "$TMP/specimen")
-  case "$probe" in
-    ''|0|ERR*)
-      say "$label" "INERT: no match in its own specimen (${probe:-nothing}) FAIL"
-      fail=1
-      return ;;
-  esac
+  local label=$1 flags=$2 pat=$3 probe n i=0 specimen
+  shift 3
+  # A gate called with no specimen would skip its own self-test and report ok, which is the exact
+  # shape of vacuity this function exists to prevent.
+  [ "$#" -gt 0 ] || {
+    say "$label" "no specimen, so nothing shows this gate can still fire FAIL"
+    fail=1
+    return
+  }
+  for specimen in "$@"; do
+    i=$((i + 1))
+    printf '%s\n' "$specimen" > "$TMP/specimen"
+    probe=$(scan "$flags" "$pat" "$TMP/specimen")
+    case "$probe" in
+      ''|0|ERR*)
+        say "$label" "INERT: specimen $i of $# unmatched (${probe:-nothing}) FAIL"
+        fail=1
+        return ;;
+    esac
+  done
   n=$(scan "$flags" "$pat" "${ALL[@]}")
   case "$n" in
-    0)    say "$label" "ok (self-test $probe)" ;;
+    0)    say "$label" "ok ($# specimens hit)" ;;
     ERR*) say "$label" "grep FAILED ($n), which is not zero hits"; fail=1 ;;
     *)    say "$label" "$n FAIL"; fail=1 ;;
   esac
@@ -122,14 +146,17 @@ gate "em dashes" -I "$EMD" "an em dash $EMD here"
 
 # Word-bounded, because a substring check is WRONG here: "provenance" contains one of the two
 # adjectives, and vendor/PROVENANCE.md records where the vendored wheel came from. Correct English
-# is never renamed to satisfy a check that should not have fired.
-for t in prov{able,en}; do gate "adjective $t" -Iwi "$t" "a $t claim"; done
+# is never renamed to satisfy a check that should not have fired. ${t^} builds the capitalised
+# specimen from the same variable, so neither spelling is ever typed into this file.
+for t in prov{able,en}; do gate "adjective $t" -Iwi "$t" "a $t claim" "${t^} again"; done
 
 KW="result""_type="
 gate "removed 2.x result kwarg" -I "$KW" "Agent(${KW}Brief)"
 
+# Three specimens for three branches, each concatenated rather than spelled, so no stale id appears
+# in this file even as an example.
 STALE="claude-[23]|gpt-""4"
-gate "stale model ids" -IE "$STALE" "model: claude-""2"
+gate "stale model ids" -IE "$STALE" "model: claude-""2" "model: claude-""3" "model: gpt-""4"
 
 # Client and organisation tokens. The list lives OUTSIDE this repository (untracked, ignored by
 # name in .gitignore): a tracked list would ship into the reviewer's clone the very tokens it
@@ -152,10 +179,9 @@ if [ -f "$TOKENS" ]; then
     # expressions - write a metacharacter escaped - and the status check in `scan` above is what
     # makes the next crash of that family a red gate instead of a clean pass.
     #
-    # The specimen is the entry itself, so this gate's self-test is a grep-health check rather than
-    # a pattern check. That is the honest description and not an oversight: the pattern IS the
-    # literal being hunted, so there is no separate trigger text to construct. It still catches the
-    # crash class above, and an entry that is not a valid expression shows up as INERT.
+    # One specimen, and it is the entry itself, so this gate's self-test is a grep-health check
+    # rather than a branch check. That is the honest description and not an oversight: the pattern
+    # IS the literal being hunted, so it has one branch and no separate trigger text to construct.
     gate "token [redacted]" -Ii "$tok" "$tok"
   done < "$TOKENS"
   # A list the author created and left holding nothing but comments is a mistake, not a policy.
