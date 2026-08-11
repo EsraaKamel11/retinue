@@ -1,6 +1,18 @@
 """Outcomes. The signal that counts is a CONFIG PARAMETER, not a code path: which outcome the
 product optimises for is a genuinely open question, and this shape keeps it a toggle (spec 5.1).
-The weights-update sketch that reads it stays Designed. Attribution: last-touch, parameterized."""
+The weights-update sketch that reads it stays Designed. Attribution: last-touch, parameterized.
+
+OutcomeRecord is frozen here while its row in `outcomes` is deliberately mutable, and the two are
+not in contradiction: frozen stops a value being rewritten under the holder it was handed to,
+while a later-resolving outcome rewrites the ROW under the same outcome_key. That is why
+`outcomes` carries no append-only trigger where `touchpoints` does. The ledger stays immutable and
+the outcome stays correctable, and schema.sql states the same reason beside the table.
+
+Attribution is INVESTOR-level: last_touch_attribution filters by kind and by time, never by
+mandate_id, so an outcome on one mandate can attribute to a touch on another for the same
+investor. That is deliberate at this size - the store offers no mandate-scoped query, and an
+investor's history reads as one conversation - but the record requires a mandate_id that
+attribution never reads, so the semantics are pinned by a test rather than left to be inferred."""
 from __future__ import annotations
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, field_validator

@@ -37,7 +37,12 @@ CREATE TRIGGER trg_touchpoints_no_truncate
     BEFORE TRUNCATE ON touchpoints
     FOR EACH STATEMENT EXECUTE FUNCTION touchpoints_append_only();
 -- Outcomes resolve over weeks: occurred_at and observed_at diverge structurally, and a
--- later-resolving outcome UPDATES this row - never the touchpoint (spec 5.1).
+-- later-resolving outcome UPDATES this row - never the touchpoint (spec 5.1). So this table
+-- carries NO append-only trigger where touchpoints above carries one, and the absence is the
+-- decision rather than the oversight it could look like: that trigger here would forbid the very
+-- UPDATE the design requires, forcing a second row per revision and making outcome_key a lie.
+-- The ledger stays immutable; the outcome stays correctable. The signal list below is the same
+-- fact as OUTCOME_SIGNALS in ledger/outcomes.py, and a test holds the two spellings equal.
 CREATE TABLE IF NOT EXISTS outcomes (
     outcome_key TEXT PRIMARY KEY,
     investor_id TEXT NOT NULL,
