@@ -2487,11 +2487,12 @@ file carries that this draft lacked, both load-bearing:
 `generate_rosters(7, 33)[:8] == generate_rosters(7, 8)`, so Task 10's frozen digest substrate
 survives unchanged as a prefix.
 
-(After Task 10's generator is extended, regenerate expectations by inspecting
-`generate_rosters(7, 8)` once and choosing two defensible golds by hand - the point is a frozen
-judged fixture, and the judgment is the author's, stated as such per spec 7.2. Choose golds
-inside the mandate's eligibility cell; `seed` and `n` are fixture fields and may change during
-regeneration too - only the metric definitions are immovable.)
+(To re-derive a gold, inspect the substrate the SHIPPED fixture names - currently
+`generate_rosters(7, 33)` - and choose by hand, stating the judgment as the author's per spec 7.2.
+Do not go back to `generate_rosters(7, 8)`: that substrate is retired precisely because every cell
+in it holds one row. Choose a gold inside a cell with at least two rivals, and prefer the last in
+roster order so an all-ties sort cannot hand the metric a pass. `seed` and `n` are fixture fields
+and may change during regeneration; only the metric definitions are immovable.)
 
 - [ ] **Step 2: Write the failing tests**
 
