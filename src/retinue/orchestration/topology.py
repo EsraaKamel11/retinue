@@ -4,6 +4,7 @@ checker-ordering guarantee reads straight off this table."""
 from __future__ import annotations
 from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 from claude_agent_sdk.types import AgentDefinition
+from retinue.specialists.drafting import DRAFTING_PROMPT
 from retinue.specialists.research import RESEARCH_PROMPT
 
 SPAWN_TOOLS = ("Agent", "Task")   # renamed at CLI 2.1.63; both listed, runtime binds one
@@ -20,11 +21,12 @@ AGENTS: dict[str, AgentDefinition] = {
         description="Researches investors from fixture documents; cites or refuses.",
         prompt=RESEARCH_PROMPT,     # parity: the SAME constant object the pydantic-ai agent uses
         tools=["Read", "Grep", "Glob"], background=False),
-    # drafting/conversation prompts are PROVISIONAL inline strings until their modules land
-    # (Tasks 17 and 22 move them into shared constants and add their parity tests).
     "drafting": AgentDefinition(
         description="Drafts outreach from the relationship record. Output goes to review.",
-        prompt="Draft from the record only.", tools=["Read"], background=False),
+        prompt=DRAFTING_PROMPT,     # parity: the SAME constant object the pydantic-ai agent uses
+        tools=["Read"], background=False),
+    # the conversation prompt is a PROVISIONAL inline string until its module lands
+    # (Task 22 moves it into a shared constant and adds its parity test).
     "conversation": AgentDefinition(
         description="Carries investor conversation; sends are gated.",
         prompt="Converse; sending is gated.", tools=["Read"], background=False),

@@ -61,3 +61,14 @@ def build_act_context(store: TouchpointStore, investor_id: str, *,
         consented_jurisdictions=juris, granted_tools=granted_tools,
         sent_count=sum(1 for t in rows if t.kind == "sent"), send_cap=send_cap,
     )
+
+def as_policy_record(record: RelationshipRecord):
+    """The ledger record in the imported policy vocabulary. Money leaves as str-from-Decimal;
+    the policy engine canonicalises on its side."""
+    from chaperone.policy.types import Record
+    fields = {"investor_id": record.investor_id}
+    if record.stated_check_size is not None:
+        fields["stated_check_size"] = str(record.stated_check_size)
+    if record.pass_reason:
+        fields["pass_reason"] = record.pass_reason
+    return Record(fields=fields)
