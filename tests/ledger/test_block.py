@@ -121,6 +121,15 @@ def test_budget_exceeded_raises():
     # passes a character count and fails a byte count. The budget bounds bytes.
     with pytest.raises(BlockBudgetExceeded):
         render_block(rec(pass_reason="é" * 200), budget=400)
+    # MONEY is now its own route to this raise, at the DEFAULT budget, and it was not before.
+    # Plain notation is wider than `str(Decimal)` for small exponents - 902 characters against 6 -
+    # so a value the block used to render can now exceed the budget. Measured rather than
+    # estimated: the boundary sits between 1E-850 (1015 bytes, renders) and 1E-860 (1025 bytes,
+    # raises), which is far outside any figure a cheque size can hold, and the direction is the
+    # fail-closed one. Under `str()` this value rendered as `stated_check_size: 1E-900`, showed the
+    # model exponent notation, and was then dropped by the engine's canonicaliser in silence.
+    with pytest.raises(BlockBudgetExceeded):
+        render_block(rec(stated_check_size=Decimal("1E-900")))
 
 def test_a_field_value_with_a_line_break_is_refused():
     with pytest.raises(BlockValueUnrenderable, match="pass_reason"):
