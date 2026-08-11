@@ -101,6 +101,23 @@ scan, never accept one).
 Live runs are **capture runs**: transcripts and payloads recorded once, stamped
 `captured@0.2.130 / CLI 2.1.222`, frozen, and replayed by the default lane forever.
 
+**Settled by the P1 capture at CLI 2.1.222, from `system:init` rather than by reasoning:**
+`tools=` **does restrict** - five names declared, four resolved (`Task, Glob, Grep, Read`), and not
+one CLI default survived. `allowed_tools=` **does not restrict**: it held the spawn names alone
+while `Glob`, `Grep` and `Read` resolved into the session anyway, so it pre-approves and nothing
+more. And the spawn tool is **one tool under two names by surface** - `Task` in the init roster,
+`Agent` in every `tool_use` block - so carrying both as data was necessary, not defensive.
+
+**Also settled, and less comfortable: the session is not hermetic by default.** The captured
+`system:init` carried five MCP servers and sixteen agent definitions where the topology declares
+three. A session inherits the operator's ambient configuration, so `agents=` merges rather than
+replaces. Two things save the blast radius here and both were designed before this was known: the
+session ceiling intersects every inherited agent down to the same four tools, and the hook's total
+decision table routes an unrecognised `agent_type` to `ask`. An inherited agent is therefore
+bounded and escalates, rather than being unbounded and silent. The fleet nonetheless pins
+`setting_sources` so its canonical fixtures come from a session it fully specifies: a capture
+taken under one operator's ambient configuration is not canonical, whatever it happens to show.
+
 The **P1 capture smoke** is the first: orchestrator plus the research subagent, with no send tool
 existing anywhere in the session. It produces the canonical fixtures for: real hook payloads from
 subagent tool calls (`agent_type` populated); the spawn tool's
