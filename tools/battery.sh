@@ -6,6 +6,10 @@
 # literally in a file it scans can only be made green by exempting something, and an exemption is
 # how a gate stops measuring.
 #
+# Every gate here asserts a MAGNITUDE, not merely a non-zero. "Nothing found" and "nothing looked"
+# print the same word, so each gate proves it can still find a violation before its zero is
+# believed, the scan proves its scope, and the suite proves its pass count.
+#
 #   bash tools/battery.sh
 #   PYTHON=/path/to/python bash tools/battery.sh   # when `python` on PATH is not the venv's
 set -u
@@ -22,69 +26,117 @@ PY="${PYTHON:-python}"
 fail=0
 say() { printf '%-40s %s\n' "$1" "$2"; }
 
+# Floors, not counts, and both sit deliberately below what the tree holds today: ordinary growth
+# and the odd deletion stay quiet, while a COLLAPSE reddens. A pathspec that stops matching, or a
+# suite that stops collecting, is the failure these two numbers exist for.
+FILE_FLOOR=40   # tracked files scanned; 49 at the time of writing
+PASS_FLOOR=72   # tests that must PASS; 72 passed and 7 skipped at the time of writing
+
+TMP=$(mktemp -d) || { printf 'battery: could not make a temp dir\n' >&2; exit 1; }
+trap 'rm -rf "$TMP"' EXIT
+
 # -z with mapfile rather than word splitting: a tracked path containing a space would otherwise
 # split into two names that do not exist, grep would error on both, and that file would go
 # unscanned while every gate still reported "ok".
 mapfile -d '' -t ALL < <(git ls-files -z ':!*.whl')
 
-# One pattern over the tracked list. Prints a count, or ERR<status> when grep ITSELF failed.
+# One pattern over one set of files. Prints a count, or ERR<status> when grep ITSELF failed.
 #
 # grep -c over a SINGLE file prints a bare count with no "filename:" prefix, so summing the last
 # colon-separated field would read a real count as a filename and add zero, and a hit would vanish
 # into an "ok". /dev/null is a second file, which forces the prefix on unconditionally.
 #
-# grep exits 0 with matches, 1 with none, and >1 on an ERROR: a bad pattern, a tracked file that
-# is not on disk, a build that dies. Folding an error into "0 hits" is how a gate reports ok for a
+# grep exits 0 with matches, 1 with none, and >1 on an ERROR: a bad pattern, a tracked file that is
+# not on disk, a build that dies. Folding an error into "0 hits" is how a gate reports ok for a
 # scan that never happened, and this script has already been caught doing it - see the token pass.
-hits() {
-  local out rc
-  out=$(grep -c "$1" -e "$2" -- "${ALL[@]}" /dev/null)
+scan() {  # scan <grep flags> <pattern> <file>...
+  local flags=$1 pat=$2 out rc
+  shift 2
+  out=$(grep -c "$flags" -e "$pat" -- "$@" /dev/null)
   rc=$?
   if [ "$rc" -gt 1 ]; then printf 'ERR%s\n' "$rc"
   else printf '%s\n' "$out" | awk -F: '{s+=$NF} END{print s+0}'
   fi
 }
 
-gate() {  # gate <label> <output of hits>
-  case "$2" in
-    0)    say "$1" "ok" ;;
-    ERR*) say "$1" "grep FAILED ($2), which is not zero hits"; fail=1 ;;
-    *)    say "$1" "$2 FAIL"; fail=1 ;;
+# gate <label> <grep flags> <pattern> <specimen>
+#
+# The specimen is a string this gate MUST match. Before any zero from the tree is believed, the
+# gate's own invocation - the same flags, the same pattern - runs against a file built to violate
+# it, and a gate that finds nothing there is INERT and reddens by name.
+#
+# Without this, a gate can go permanently silent and no control notices. Drop -E from the stale-id
+# gate below and its alternation becomes a literal pipe: the pattern then matches a string that
+# occurs nowhere on earth, and reports ok forever. The scope floor proves files were read and the
+# positive control proves the machinery reads them; only this proves each PATTERN still works.
+gate() {
+  local label=$1 flags=$2 pat=$3 specimen=$4 probe n
+  printf '%s\n' "$specimen" > "$TMP/specimen"
+  probe=$(scan "$flags" "$pat" "$TMP/specimen")
+  case "$probe" in
+    ''|0|ERR*)
+      say "$label" "INERT: no match in its own specimen (${probe:-nothing}) FAIL"
+      fail=1
+      return ;;
+  esac
+  n=$(scan "$flags" "$pat" "${ALL[@]}")
+  case "$n" in
+    0)    say "$label" "ok (self-test $probe)" ;;
+    ERR*) say "$label" "grep FAILED ($n), which is not zero hits"; fail=1 ;;
+    *)    say "$label" "$n FAIL"; fail=1 ;;
   esac
 }
 
-# Two anti-vacuity guards, because every gate below reports zero hits over a tree it never read,
-# and zero is exactly what "ok" means here.
-#   1. An empty file list - wrong directory, a pathspec that excluded everything, a repository
-#      with nothing tracked yet. The battery would exit 0 having read nothing at all.
-[ "${#ALL[@]}" -gt 0 ] || { printf 'battery: no tracked files to scan\n' >&2; exit 1; }
-#   2. The counting machinery itself - a mis-summed awk field, a grep that will not run, a list of
-#      names that are not on disk. A pattern that MUST hit is the only thing that tells a clean
-#      tree apart from a battery that has quietly stopped reading one.
-control=$(hits -I "retinue")
+# Scope. Not "more than zero files" but a floor, because a pathspec change that reduced the scan to
+# a single file would otherwise still print ok for every gate below.
+if [ "${#ALL[@]}" -lt "$FILE_FLOOR" ]; then
+  printf 'battery: %s tracked files to scan, under the floor of %s - the scan has collapsed\n' \
+    "${#ALL[@]}" "$FILE_FLOOR" >&2
+  exit 1
+fi
+# The counting machinery itself - a mis-summed awk field, a grep that will not run, a list of names
+# that are not on disk. A pattern that MUST hit is the only thing that tells a clean tree apart
+# from a battery that has quietly stopped reading one.
+control=$(scan -I "retinue" "${ALL[@]}")
 case "$control" in
   ''|0|ERR*)
     printf 'battery: the positive control returned %s, so the greps are not reading the tree\n' \
       "${control:-nothing}" >&2
     exit 1 ;;
 esac
-say "scanning" "${#ALL[@]} tracked files (control: $control hits)"
+say "scanning" "${#ALL[@]} tracked files, floor $FILE_FLOOR (control: $control hits)"
 
+# -I skips files grep judges binary. It is belt-and-braces here, since the only binary artifact in
+# the tree is the vendored wheel and the pathspec above already excludes it. It is still a
+# SILENCING flag, so it is named rather than left to be discovered: if a binary file is ever
+# tracked, these gates skip it and say nothing.
 EMD=$(printf '\342\200\224')   # octal, so the byte sequence itself appears in no tracked file
-gate "em dashes" "$(hits -I "$EMD")"
+gate "em dashes" -I "$EMD" "an em dash $EMD here"
+# Policy, settled now rather than under pressure: this gate covers the captured fixtures too, so a
+# future capture whose model output carries an em dash would put a WRITING rule over CAPTURED
+# EVIDENCE. Neither quiet answer is available then. The fixture is not edited, because a capture is
+# evidence and editing one to satisfy a style rule is the thing fixtures/ exists to prevent; and
+# the gate is not widened to all of fixtures/, which would retire it over exactly the files most
+# likely to carry text nobody here wrote. The answer is a narrow exemption for that one path, named
+# in the commit that adds it and citing the capture. Until such a capture exists, none exists.
 
 # Word-bounded, because a substring check is WRONG here: "provenance" contains one of the two
 # adjectives, and vendor/PROVENANCE.md records where the vendored wheel came from. Correct English
 # is never renamed to satisfy a check that should not have fired.
-for t in prov{able,en}; do gate "adjective $t" "$(hits -Iwi "$t")"; done
+for t in prov{able,en}; do gate "adjective $t" -Iwi "$t" "a $t claim"; done
 
-gate "removed 2.x result kwarg" "$(hits -I "result""_type=")"
-gate "stale model ids"          "$(hits -IE "claude-[23]|gpt-""4")"
+KW="result""_type="
+gate "removed 2.x result kwarg" -I "$KW" "Agent(${KW}Brief)"
+
+STALE="claude-[23]|gpt-""4"
+gate "stale model ids" -IE "$STALE" "model: claude-""2"
 
 # Client and organisation tokens. The list lives OUTSIDE this repository (untracked, ignored by
 # name in .gitignore): a tracked list would ship into the reviewer's clone the very tokens it
 # exists to keep out. So the pass is optional by design, it SAYS when it did not run rather than
 # reporting an "ok" it never earned, and a hit prints [redacted] rather than the token itself.
+# The cost of that design, stated where it is decided: an untracked list can never reach CI, so
+# this is the one gate here with no standing enforcement outside the author's own machine.
 TOKENS=tools/banned_tokens.txt
 if [ -f "$TOKENS" ]; then
   entries=0
@@ -97,11 +149,21 @@ if [ -f "$TOKENS" ]; then
     # and it is how this pass first shipped: the msys GNU grep 3.0 on the authoring machine ABORTS
     # when -i and -F are combined, the abort printed nothing, the sum read zero, and the gate
     # reported ok for a token occurring 113 times in the tree. Entries are therefore basic regular
-    # expressions - write a metacharacter escaped - and the status check in `hits` above is what
+    # expressions - write a metacharacter escaped - and the status check in `scan` above is what
     # makes the next crash of that family a red gate instead of a clean pass.
-    gate "token [redacted]" "$(hits -Ii "$tok")"
+    #
+    # The specimen is the entry itself, so this gate's self-test is a grep-health check rather than
+    # a pattern check. That is the honest description and not an oversight: the pattern IS the
+    # literal being hunted, so there is no separate trigger text to construct. It still catches the
+    # crash class above, and an entry that is not a valid expression shows up as INERT.
+    gate "token [redacted]" -Ii "$tok" "$tok"
   done < "$TOKENS"
-  say "token list" "$entries entries checked"
+  # A list the author created and left holding nothing but comments is a mistake, not a policy.
+  if [ "$entries" -eq 0 ]; then
+    say "token list" "present but holds no entries FAIL"; fail=1
+  else
+    say "token list" "$entries entries checked"
+  fi
 else
   say "token list" "absent by design (untracked) - this pass did NOT run"
 fi
@@ -115,7 +177,20 @@ fi
 # against the published ranges of the firms on the untracked list. Named absent beats missing.
 
 "$PY" tools/fleet_audit.py || fail=1
-# No second -q: pyproject's addopts already carries one, and -qq deletes the "N passed" line, so
-# the battery would be reporting a suite result it never printed.
-"$PY" -m pytest || fail=1
+
+# The suite gate, with a floor on what PASSED. Exit status alone is not enough: pytest exits 0 for
+# a run in which every test skipped, so this gate would go green over a suite that asserted
+# nothing - the vacuity this whole script exists to hunt, sitting in its own last gate. The floor
+# is parsed from pytest's own summary line, which is also why no second -q is passed: pyproject's
+# addopts already carries one, and -qq deletes the very line this reads.
+"$PY" -m pytest 2>&1 | tee "$TMP/pytest.out"
+[ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
+passed=$(grep -oE '[0-9]+ passed' "$TMP/pytest.out" | tail -1 | grep -oE '^[0-9]+')
+if [ -z "$passed" ]; then
+  say "suite floor" "no pass count in pytest's own summary FAIL"; fail=1
+elif [ "$passed" -lt "$PASS_FLOOR" ]; then
+  say "suite floor" "$passed passed, under the floor of $PASS_FLOOR FAIL"; fail=1
+else
+  say "suite floor" "$passed passed (floor $PASS_FLOOR)"
+fi
 exit $fail

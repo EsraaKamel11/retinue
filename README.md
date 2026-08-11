@@ -71,17 +71,28 @@ certainty adjectives (word-bounded, so "provenance" is not a hit), the removed p
 result kwarg, and stale model ids. Then it runs the AST import audit and the full suite.
 
 Its patterns are constructed rather than spelled, so the script passes the battery it defines
-instead of exempting itself. Three guards exist because the failure mode of a grep suite is
-passing while measuring nothing: it refuses to run against an empty file list; a positive control
-asserts the counting machinery actually returns hits before any gate's zero is believed; and a
-grep that exits with an error status is reported as a failed gate rather than folded into zero
-hits. The third guard earned its place during this task, on this script: a grep build that aborts
-on one flag combination printed nothing, and the gate scored the silence as a clean pass.
+instead of exempting itself. Every gate asserts a magnitude and not merely a non-zero, because
+"nothing found" and "nothing looked" print the same word:
+
+- each gate first runs its own invocation, flags and all, against a specimen built to violate it,
+  and reddens as INERT if it finds nothing there, so a pattern that has quietly stopped matching
+  cannot go on reporting ok;
+- the scan is held to a floor on tracked files rather than to "more than zero", and a positive
+  control asserts the counting machinery returns hits at all;
+- the suite gate is held to a floor on the pass count, parsed from pytest's own summary, because
+  pytest exits 0 for a run in which every test skipped;
+- a grep that exits with an error status is a failed gate, never zero hits.
+
+That last guard earned its place by being caught rather than foreseen: a grep build that aborts on
+one flag combination printed nothing, and the gate scored the silence as a clean pass.
 
 The client-and-organisation token pass reads `tools/banned_tokens.txt`, which is **untracked and
 gitignored on purpose**: a tracked list would ship into a reviewer's clone the very tokens it
 exists to keep out. The battery therefore runs without it and says the pass did not run, rather
-than reporting an "ok" it did not earn, and a hit prints `[redacted]` rather than the token.
+than reporting an "ok" it did not earn, and a hit prints `[redacted]` rather than the token. A list
+that exists but holds no entries reddens, since an empty list is a mistake and not a policy. The
+cost of the design is worth naming: an untracked file can never reach CI, so this is the one gate
+here with no standing enforcement outside the author's own machine.
 
 Spec section 11 names one more grep family, marketing figures, which is deliberately not a gate:
 it has no reliable textual signature, so a pattern loose enough to catch one reddens on correct
