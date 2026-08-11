@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "hand_authored": true,
+    "note": "Gold shortlists over the seed-7 synthetic roster, judged by hand and frozen. The seeded generator supplies unjudged volume only (spec 7.2); which investor should top each shortlist is this author's judgment, stated as such. All figures invented.",
+    "why_n_is_33": "The first draft of this fixture read generate_rosters(7, 8). On that substrate the eight rows fall into eight DISTINCT (sector, stage, geography) cells, so any mandate admits exactly one candidate and a gold over a one-candidate shortlist is a tautology: the metric reports 1.0 whatever the ranker did, and the cold-start case cannot fall at all. n is a fixture field and it was moved rather than the metric. The generator draws row by row from the seeded stream, so rows 0 to 7 here are still byte-for-byte the substrate tests/synth/test_rosters.py freezes to a digest; 33 is simply the first n at which seed 7 offers two cells holding three rivals each.",
+    "eligible_cell": "What each case's mandate admits, in roster order, frozen here so a cell that quietly collapses to one candidate reddens instead of passing. The contract is membership; the order shown is the roster's, and it is the order an all-ties sort leaves behind.",
+    "metrics": "Scored by hit@N and by MRR, the reciprocal rank, both defined in src/retinue/evals/ranking.py. They come from this project's own ranking analysis."
+  },
+  "cases": [
+    {
+      "name": "warm-relationship-wins",
+      "seed": 7,
+      "n": 33,
+      "mandate": {
+        "check_size_min": "100000",
+        "stage": "seed",
+        "sector": "logistics",
+        "geography": "mena",
+        "consented_jurisdictions": ["US", "UK", "DE"]
+      },
+      "eligible_cell": ["synth-001", "synth-029", "synth-032"],
+      "expected_top": "synth-032",
+      "evidence_condition": "One contact touchpoint for the judged top, 20 days before the evaluation clock, and a FLAT similarity score for every candidate in the cell.",
+      "judgment": "The judged top is last of the three in roster order, so with similarity flat and the ledger silent it sits third. A recorded relationship is the signal a bought database cannot have, and the judgment is that it should carry this candidate to the front of a cell it would otherwise trail. Nothing but the relationship term can buy that here."
+    },
+    {
+      "name": "cold-start-carried-by-similarity",
+      "seed": 7,
+      "n": 33,
+      "mandate": {
+        "check_size_min": "100000",
+        "stage": "series-a",
+        "sector": "climate",
+        "geography": "eu-west",
+        "consented_jurisdictions": ["US", "UK", "DE"]
+      },
+      "eligible_cell": ["synth-012", "synth-016", "synth-024"],
+      "expected_top": "synth-024",
+      "evidence_condition": "An EMPTY ledger - nobody in this cell has ever been contacted - and a similarity score that favours the judged top over its two rivals.",
+      "judgment": "A party this system has no history with may still lead a shortlist, on similarity alone. The judged top is again last of the three in roster order, which is what makes the converse checkable: withdraw the similarity that carried them and the metric has to fall rather than hold."
+    }
+  ]
+}
