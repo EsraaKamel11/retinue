@@ -5,6 +5,16 @@ from retinue.orchestration.topology import AGENTS, SESSION_TOOLS, SPAWN_TOOLS, T
 async def _noop_hook(input_data, tool_use_id, context):
     return {}
 
+def test_the_session_loads_no_ambient_filesystem_settings():
+    # `None` is the dangerous value and the default: it loads every filesystem settings source,
+    # and the first capture proved what that means. That session resolved SIXTEEN agent
+    # definitions where this module declares three, and five MCP servers nobody here configured,
+    # every one of them read off the operator's own machine. Fixtures captured from a session
+    # shaped by one operator's configuration are not canonical, whatever they happen to show.
+    # Asserted as `== []` and not merely falsy, because `None` is falsy and is the opposite.
+    opts = build_options(_noop_hook)
+    assert opts.setting_sources == []
+
 def test_every_agent_is_foreground():
     for name, d in AGENTS.items():
         assert getattr(d, "background", None) is False, f"{name} must set background=False"

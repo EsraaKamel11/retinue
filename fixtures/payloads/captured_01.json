@@ -9,21 +9,21 @@
   ]
  },
  "payload": {
-  "session_id": "c5915401-4d02-48f3-9f4a-73c3426f65ef",
-  "transcript_path": "C:\\Users\\<user>\\.claude\\projects\\D--retinue\\c5915401-4d02-48f3-9f4a-73c3426f65ef.jsonl",
+  "session_id": "2a2e5072-73a5-4705-a612-c4733378d702",
+  "transcript_path": "C:\\Users\\<user>\\.claude\\projects\\D--retinue\\2a2e5072-73a5-4705-a612-c4733378d702.jsonl",
   "cwd": "D:\\retinue",
-  "prompt_id": "d557ede6-d5ff-4a38-8fea-01237bcb8e4a",
+  "prompt_id": "50b28363-2036-4a18-ab9c-ca45ca01491c",
   "permission_mode": "default",
-  "agent_id": "a06054308543acaaa",
+  "agent_id": "a1c04508c555d7421",
   "agent_type": "research",
   "effort": {
-   "level": "xhigh"
+   "level": "high"
   },
   "hook_event_name": "PreToolUse",
   "tool_name": "Read",
   "tool_input": {
    "file_path": "D:\\retinue\\fixtures\\docs\\doc-1.md"
   },
-  "tool_use_id": "toolu_0135jPGGD7kKipYfy185oFdu"
+  "tool_use_id": "toolu_01Bs4pg5tV2PzW1UNzSZQFyr"
  }
 }

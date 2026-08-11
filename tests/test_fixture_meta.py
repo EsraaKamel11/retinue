@@ -109,6 +109,34 @@ def _smoke_import_findings(root: Path) -> list[str]:
                 findings.append(f"test_imports_capture_smoke: {py.name}:{node.lineno}")
     return findings
 
+#: The CLI's own built-in agents at 2.1.222, read off a captured `system:init`. Not configuration:
+#: they ship with the product, and `setting_sources=[]` does not remove them. Pinned as data so
+#: anything ELSE appearing beside the topology's own names is a finding - which is exactly what a
+#: capture taken on a machine whose settings leaked into the session looks like.
+_BUILTIN_AGENTS = frozenset({"claude", "Explore", "general-purpose", "Plan", "statusline-setup"})
+
+def _init_findings(init: dict) -> list[str]:
+    """What a canonical `system:init` may contain. These fixtures are replayed forever, so a
+    session that one operator's ambient configuration helped shape must not become the canon."""
+    from retinue.orchestration.topology import AGENTS
+    findings: list[str] = []
+    ambient = sorted(set(init.get("agents") or ()) - _BUILTIN_AGENTS - set(AGENTS))
+    if ambient:
+        findings.append(f"init_declares_ambient_agents: {ambient}")
+    # `setting_sources=[]` does NOT clear `mcp_servers`, so those servers are listed in a
+    # canonical capture too. Being listed is harmless; a tool of theirs resolving into the session
+    # is not, and that is the property the send-free claim actually rests on.
+    mcp = sorted(t for t in (init.get("tools") or ()) if t.startswith("mcp__"))
+    if mcp:
+        findings.append(f"init_session_holds_an_mcp_tool: {mcp}")
+    return findings
+
+def _captured_init() -> dict:
+    p = FIX / "payloads" / "captured_init.json"
+    if not p.is_file():
+        pytest.skip(f"no captured system:init at {p}; produce it with: {SMOKE}")
+    return json.loads(p.read_text(encoding="utf-8"))["payload"]
+
 def _captured_payloads() -> list[dict]:
     paths = sorted(FIX.glob("payloads/captured_*.json"))
     if not paths:
@@ -183,3 +211,15 @@ def test_a_captured_payload_carries_the_agent_type_key():
     assert any("agent_type" in p for p in payloads), (
         f"none of {len(payloads)} captured payloads carries `agent_type`: the routing table has "
         "no subagent arm to route on and the ask branch is dead code")
+
+def test_the_captured_session_is_the_topology_plus_nothing_ambient():
+    """A capture taken on a machine whose settings reach the session is not canonical, whatever
+    it happens to show - and it would otherwise become the canon quietly, since every fixture
+    here is replayed forever."""
+    assert _init_findings(_captured_init()) == []
+
+def test_the_init_rules_fire_on_a_planted_session():
+    assert any("init_declares_ambient_agents" in f
+               for f in _init_findings({"agents": ["research", "someones-own-agent"]}))
+    assert any("init_session_holds_an_mcp_tool" in f
+               for f in _init_findings({"tools": ["Read", "mcp__mail__deliver"]}))

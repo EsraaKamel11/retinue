@@ -9,22 +9,22 @@
   ]
  },
  "payload": {
-  "session_id": "c5915401-4d02-48f3-9f4a-73c3426f65ef",
-  "transcript_path": "C:\\Users\\<user>\\.claude\\projects\\D--retinue\\c5915401-4d02-48f3-9f4a-73c3426f65ef.jsonl",
+  "session_id": "2a2e5072-73a5-4705-a612-c4733378d702",
+  "transcript_path": "C:\\Users\\<user>\\.claude\\projects\\D--retinue\\2a2e5072-73a5-4705-a612-c4733378d702.jsonl",
   "cwd": "D:\\retinue",
-  "prompt_id": "d557ede6-d5ff-4a38-8fea-01237bcb8e4a",
+  "prompt_id": "50b28363-2036-4a18-ab9c-ca45ca01491c",
   "permission_mode": "default",
   "effort": {
-   "level": "xhigh"
+   "level": "high"
   },
   "hook_event_name": "PreToolUse",
   "tool_name": "Agent",
   "tool_input": {
    "description": "Summarise doc-1.md",
-   "prompt": "Read the file fixtures/docs/doc-1.md and produce a summary of its contents.\n\nRequirements:\n- Read the actual file. Do not infer or reconstruct contents from the filename or from memory.\n- Cite specific claims against the document (quote or reference the relevant section/line).\n- If the file does not exist, is empty, or is unreadable, say so plainly and refuse to summarise rather than guessing.\n- Report the file's actual path as you found it.\n\nReturn: a concise summary (bullet points where appropriate) covering what the document is, its main claims/sections, and any notable specifics (names, figures, dates).",
+   "prompt": "Read fixtures/docs/doc-1.md and produce a summary of its contents. Cite specifics from the document (quotes or clear references) to support each point in your summary. If the file does not exist or cannot be read, say so plainly rather than guessing at its contents.",
    "subagent_type": "research",
    "run_in_background": false
   },
-  "tool_use_id": "toolu_018X12hXikSsoiATNrwxnKVG"
+  "tool_use_id": "toolu_0147Pnfz5nX9VHEw3yo6ikMa"
  }
 }

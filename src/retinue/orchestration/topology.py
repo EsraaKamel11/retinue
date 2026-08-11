@@ -43,10 +43,32 @@ def build_options(hook) -> ClaudeAgentOptions:
     # `tools` is the session roster; `allowed_tools` is the auto-approve list. Both are set:
     # omitting `tools` inherits the CLI default, and omitting `allowed_tools` would leave the
     # orchestrator's spawn-only bound unstated.
+    #
+    # `setting_sources=[]` is the third, and what it does here is measured, not assumed. Left
+    # unset it defaults to None, which loads every filesystem settings source - and `agents`
+    # MERGES with what those sources declare rather than replacing it. A live capture taken
+    # without it resolved SIXTEEN agent definitions where this table declares three, plus two
+    # plugins and the operator's own hooks, all read off one machine. A second capture with it
+    # set resolved eight: the eight settings-defined agents, both plugins and those ambient hooks
+    # were gone, and the resolved tool list was identical either way.
+    #
+    # What it does NOT remove, stated because the paragraph above would otherwise overclaim: the
+    # CLI's own built-in agents (`claude`, `Explore`, `general-purpose`, `Plan`,
+    # `statusline-setup`), which are the product rather than anyone's configuration; and the MCP
+    # servers, which reach the session from a source this option does not govern - both captures
+    # listed the same five. That residual is why the fixture contract asserts that no `mcp__`
+    # tool resolves INTO the session, which is the property those servers would have to breach
+    # to matter.
+    #
+    # The reason to care is the fixtures. The design survives an inherited agent (the session
+    # ceiling intersects it down to the same four tools, and an unrecognised `agent_type` routes
+    # to the human), but a payload captured from a session one machine's configuration helped
+    # shape is not the canonical artifact the default lane replays forever.
     return ClaudeAgentOptions(
         agents=AGENTS,
         tools=list(SESSION_TOOLS),
         allowed_tools=list(SPAWN_TOOLS),
         permission_mode="default",
+        setting_sources=[],
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[hook])]},
     )
