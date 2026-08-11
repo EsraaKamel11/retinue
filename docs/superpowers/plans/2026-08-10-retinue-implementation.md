@@ -3905,6 +3905,15 @@ git commit -m "feat: the P4 demo - offer asserted before any gating claim, ask f
   both halves: hand-authored, so every number is a protocol demonstration, not a measured claim
   about model behaviour).
 
+- [ ] **Step 1a: Make the battery say what it did not scan.** It scans `git ls-files`, so an
+  untracked file is invisible to every gate while all of them still print ok - verified during
+  Task 12 by dropping an untracked file containing a stale model id into the tree and watching
+  the battery exit 0. Scanning what ships is the right scope; the silence is the defect, and it
+  is the same shape as the token list, which the battery already reports as "absent by design -
+  this pass did NOT run" rather than skipping quietly. Count untracked non-ignored files and
+  print them as unscanned, naming the count. Do not fail on them: a work-in-progress file is not
+  a violation, and a gate that reddens on ordinary work gets disabled.
+
 - [ ] **Step 1b: Raise the battery's floors to the finished tree.** `FILE_FLOOR` and `PASS_FLOOR`
   in `tools/battery.sh` were set against the Phase 1 tree (49 files, 72 passed) and catch collapse
   rather than erosion. Re-baseline both to the current counts, keeping a floor rather than an
