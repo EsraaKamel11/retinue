@@ -3856,6 +3856,12 @@ git commit -m "feat: the P4 demo - offer asserted before any gating claim, ask f
   both halves: hand-authored, so every number is a protocol demonstration, not a measured claim
   about model behaviour).
 
+- [ ] **Step 1b: Raise the battery's floors to the finished tree.** `FILE_FLOOR` and `PASS_FLOOR`
+  in `tools/battery.sh` were set against the Phase 1 tree (49 files, 72 passed) and catch collapse
+  rather than erosion. Re-baseline both to the current counts, keeping a floor rather than an
+  equality: a ceiling reddens on the first added test and gets exempted, which is how a gate stops
+  measuring. Record the old and new numbers in the commit body so the drift is legible.
+
 - [ ] **Step 2: Run the battery** - `bash tools/battery.sh` - Expected: exit 0, every line ok
   (em dashes, adjectives, removed kwarg, stale ids, token list if present locally, audit, full
   suite). Then the fingerprint pass once more over everything committed since Task 10's: every
