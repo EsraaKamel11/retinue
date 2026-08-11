@@ -32,10 +32,17 @@ Register = Literal["EXCEPTION", "UNVERIFIABLE", "CLEAN"]
 #: long draft with a short row's verdict, which is the direction that must not exist. Made
 #: non-greedy, `test_a_draft_forging_the_closing_delimiter_answers_for_no_frozen_row` reddens.
 #:
-#: Drift is loud rather than silent: rename either tag upstream and this matches nothing, every
-#: draft fails closed, and FIVE tests go red - three reporting a checker that is down, and two
-#: failing on the extraction itself and so naming the cause. Measured under M8 rather than counted
-#: by hand, and re-measured whenever a test that reads the extraction is added.
+#: Drift is loud rather than silent: break the agreement between this pattern and the tags the
+#: import emits and this matches nothing, every draft fails closed, and FIVE tests go red - three
+#: reporting a checker that is down, and two failing on the extraction itself and so naming the
+#: cause. Measured under M8 rather than counted by hand, and re-measured whenever a test that reads
+#: the extraction is added.
+#:
+#: What M8 renames is the tag HERE, which is one side of that agreement. An earlier version of this
+#: sentence said "rename either tag upstream", naming the side the row does NOT touch. Both sides
+#: land on the same five tests, because the tests read the import's real output rather than a copy
+#: of it, so the count is right either way. The measured direction is this one, and a sentence that
+#: names the unmeasured direction is a claim standing on a row that did not test it.
 _CANDIDATE_DRAFT = re.compile(r"<candidate_draft>\n(.*)\n</candidate_draft>", re.DOTALL)
 
 #: Every structural delimiter `build_checker_messages` emits. A frozen row whose body carries any
