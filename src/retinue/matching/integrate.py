@@ -49,7 +49,11 @@ def candidate_for(row: dict, store: TouchpointStore, *, now: datetime) -> Candid
         # `None`, never `0`. Zero days means touched today; absent means never touched, which is
         # the state the cold-start commitment turns on - `relationship_score` reads `None` as 0.0
         # and lets similarity carry the candidate, where a 0 would read as maximum recency.
-        days_since_touch=(now - rec.last_contact).days if rec.last_contact else None,
+        # `is not None` for the same reason as the jurisdiction above: a datetime is always truthy
+        # so nothing changes today, but truthiness is the wrong question three lines under a
+        # comment making a doctrine of the difference between absent and empty.
+        days_since_touch=((now - rec.last_contact).days
+                          if rec.last_contact is not None else None),
         prior_passes=passes,
     )
 

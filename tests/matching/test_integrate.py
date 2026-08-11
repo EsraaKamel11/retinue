@@ -74,13 +74,22 @@ def test_never_touched_is_absent_not_a_touch_today():
     assert c.days_since_touch is None
 
 def test_ledger_identity_outranks_the_roster_row_on_jurisdiction():
-    # Which jurisdiction wins decides MEMBERSHIP, so the precedence is not a detail. No other test
-    # here seeds an identity touchpoint, which leaves the ledger arm of that choice unexercised:
-    # reverse it and a stale roster row readmits a party the ledger places outside consent.
+    # Which jurisdiction wins decides MEMBERSHIP, so the precedence is not a detail. Reverse it and
+    # a stale roster row readmits a party the ledger places outside consent.
+    #
+    # Kept deliberately even though every mutation that reddens it also reddens the empty-value
+    # test below, so the question is not re-derived: subsumption was measured over mutations to ONE
+    # expression, and the two tests differ in which EDITS they survive rather than only in which
+    # mutations they catch. Normalize `""` to `None` inside project_record - a plausible cleanup
+    # one layer down, and one the test below would correctly redden - and that test becomes wrong
+    # and gets rewritten or deleted. At that moment the primary rule, that a jurisdiction the
+    # ledger actually records beats the roster row, would have NO guard at all. This one survives
+    # that edit untouched. Retiring it would trade a durable guard for a transient one.
     store = InMemoryStore()
     store.append(Touchpoint(idempotency_key="inv-1-i", investor_id="inv-1", mandate_id="m-1",
                             kind="identity", payload={"jurisdiction": "RU"},
                             occurred_at=NOW - timedelta(days=5), recorded_at=NOW))
+    assert candidate_for(row(), store, now=NOW).jurisdiction == "RU"   # resolved, not merely gone
     ranked, needs = shortlist([row()], MANDATE, embed_score=lambda c: 1.0, store=store, now=NOW)
     assert (ranked, needs) == ([], [])
 
@@ -95,6 +104,7 @@ def test_an_empty_ledger_jurisdiction_is_a_fact_not_an_absence():
     store.append(Touchpoint(idempotency_key="inv-1-i", investor_id="inv-1", mandate_id="m-1",
                             kind="identity", payload={"jurisdiction": ""},
                             occurred_at=NOW - timedelta(days=5), recorded_at=NOW))
+    assert candidate_for(row(juris="US"), store, now=NOW).jurisdiction == ""  # the ledger's fact
     ranked, needs = shortlist([row(juris="US")], MANDATE, embed_score=lambda c: 1.0,
                               store=store, now=NOW)
     assert (ranked, needs) == ([], [])
@@ -110,3 +120,22 @@ def test_projection_unavailable_raises_never_invents_a_candidate():
     # The message is the doctrine the guard carries, so matching it is what tells the two apart.
     with pytest.raises(StoreUnavailable, match="never invents"):
         candidate_for(row(), Broken(), now=NOW)
+
+def test_one_unreadable_party_fails_the_whole_shortlist():
+    # The doctrine is pinned at candidate_for, and shortlist is what the rest of the system calls.
+    # Nothing else holds shortlist to it: wrap the loop in `try/except StoreUnavailable: continue`,
+    # the change someone makes in the name of resilience, and every other test here stays green
+    # while a party vanishes from a shortlist that still looks complete. The MIXED list is the
+    # point - one readable row and one unreadable - because the swallowing form then returns an
+    # ordinary-looking (['inv-ok'], []) rather than an empty result anyone would question. That is
+    # projection.py's forbidden collapse transposed up a layer: absent-because-not-a-match and
+    # absent-because-the-query-failed must not arrive as the same answer.
+    class HalfBroken:
+        def __init__(self): self._ok = InMemoryStore()
+        def touchpoints_for(self, i):
+            if i == "inv-down": raise StoreUnavailable("down")
+            return self._ok.touchpoints_for(i)
+        def append(self, t): raise AssertionError
+    with pytest.raises(StoreUnavailable, match="never invents"):
+        shortlist([row("inv-ok"), row("inv-down")], MANDATE,
+                  embed_score=lambda c: 1.0, store=HalfBroken(), now=NOW)
