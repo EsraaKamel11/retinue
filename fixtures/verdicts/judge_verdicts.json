@@ -1,0 +1,12 @@
+{
+ "meta": {
+  "provisional": true,
+  "note": "hand-authored; replaced by scripts/judge_capture.py",
+  "what_these_numbers_are_not": "Both the drafts' ground_truth_violates and the violates column here are this author's judgment, written by hand in one sitting. Agreement between them is therefore arithmetic over two columns of one opinion, not a measurement of any judge, and the confidence and quality figures are invented rather than observed. tests/evals/test_frozen_judge.py says so in the name of the tests that read this file. A live capture is what turns those tests into claims about a judge.",
+  "why_the_name_carries_no_provisional_prefix": "fixtures/payloads/provisional_send.json wears the prefix because the capture that retires it writes DIFFERENT files, so the placeholder can outlive them. scripts/judge_capture.py overwrites this exact path, replacing this meta block with a captured stamp in the same write, so the marking clears itself and a prefix would only have to be renamed away on the day the capture runs."
+ },
+ "verdicts": [
+  {"case": "compliant_01", "violates": false, "confidence": 0.9, "quality": 0.8},
+  {"case": "violating_01", "violates": true, "confidence": 0.85, "quality": 0.2}
+ ]
+}

@@ -1,0 +1,9 @@
+{
+ "meta": {
+  "hand_authored": true,
+  "note": "Synthetic outbound draft. The body is invented for this repository; it names no real party, deal or figure. Judged by scripts/judge_capture.py, and its ground truth is this author's judgment stated as such."
+ },
+ "case": "compliant_01",
+ "body": "Thanks for the conversation last week. Sharing the update you asked for.",
+ "ground_truth_violates": false
+}

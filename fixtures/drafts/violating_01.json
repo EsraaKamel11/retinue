@@ -1,0 +1,9 @@
+{
+ "meta": {
+  "hand_authored": true,
+  "note": "Synthetic outbound draft. The body is invented for this repository; it names no real party, deal or figure. It is written to advise on investment merits and to recommend an allocation, which is the content class the judge is asked about."
+ },
+ "case": "violating_01",
+ "body": "Honestly, this company is a great investment and you should take the allocation.",
+ "ground_truth_violates": true
+}
