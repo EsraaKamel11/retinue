@@ -11,12 +11,19 @@ from retinue.evals.control import BLOCK_ONLY_FIELDS, answer_from, strip_block
 HEAD = "You are drafting for inv-1."
 TAIL = "Draft a short follow-up."
 
+# The rendered labels this control deliberately does NOT ask about. Held here rather than left
+# implicit so that the roster test below can require every rendered label to be in one list or the
+# other, which is what turns "a field was added to the block" into a decision instead of silence.
+NOT_BLOCK_ONLY_LABELS = frozenset({"investor", "jurisdiction", "domain"})
+
+def record():
+    return RelationshipRecord(investor_id="inv-1", stated_check_size=Decimal("250000"),
+                              pass_reason="stage too early",
+                              last_contact=datetime(2030, 1, 2, tzinfo=timezone.utc),
+                              jurisdiction="US", domain="example.test")
+
 def prompt():
-    rec = RelationshipRecord(investor_id="inv-1", stated_check_size=Decimal("250000"),
-                             pass_reason="stage too early",
-                             last_contact=datetime(2030, 1, 2, tzinfo=timezone.utc),
-                             jurisdiction="US", domain="example.test")
-    return f"{HEAD}\n\n" + render_block(rec) + f"\n{TAIL}"
+    return f"{HEAD}\n\n" + render_block(record()) + f"\n{TAIL}"
 
 def test_with_the_block_every_block_question_answers():
     p = prompt()
@@ -63,3 +70,38 @@ def test_the_strip_removes_the_whole_block_and_only_the_block():
     stripped = strip_block(prompt())
     assert all(answer_from(stripped, f) is None for f in BLOCK_ONLY_FIELDS)
     assert stripped == f"{HEAD}\n\n{TAIL}"
+
+def test_a_block_with_no_boundary_after_it_raises_rather_than_eating_the_prompt():
+    """The hollow control arrives through prompt ASSEMBLY, not through the rendering.
+
+    `render_block` already ends in one newline, so the natural concatenation adds no separator -
+    and then there is no blank line after the block at all. Taking everything from the header
+    onward removes the instruction along with the block, all three questions fail because NOTHING
+    WAS ASKED OF ANYONE, and the control reports the block load-bearing on the strength of a
+    prompt that no longer asks anything. That is M8 arriving as a prompt shape rather than as an
+    edit, and the fixture with its explicit separator never builds it.
+
+    Unlocatable is not the same as absent, and both raise, on one doctrine.
+    """
+    p = f"{HEAD}\n\n" + render_block(record()) + TAIL          # no separating newline
+    with pytest.raises(ValueError, match="cannot be located"):
+        strip_block(p)
+
+def test_a_block_that_ends_the_prompt_is_still_stripped():
+    # The other side of that raise, and the reason it cannot simply refuse whenever no blank line
+    # follows: a block sitting at the very END of the prompt has no blank line after it either,
+    # and there taking everything from the header onward is exactly right.
+    assert strip_block(f"{HEAD}\n\n" + render_block(record())) == f"{HEAD}\n\n"
+
+def test_every_rendered_label_is_classified_block_only_or_deliberately_not():
+    """Rename and removal are loud; ADDITION is the direction that drifts in silence.
+
+    A seventh field added to `render_block` and not to `BLOCK_ONLY_FIELDS` reddens nothing
+    anywhere: the control simply stops covering it, every test stays green, and the eval quietly
+    measures less than it claims. Requiring every rendered label to be classified one way or the
+    other makes that addition a decision someone has to make, rather than a default.
+    """
+    labels = [line.split(":", 1)[0] for line in render_block(record()).splitlines()[1:]]
+    assert len(labels) == len(set(labels)), "two rendered lines share a label"
+    assert not (set(BLOCK_ONLY_FIELDS) & NOT_BLOCK_ONLY_LABELS), "a label classified both ways"
+    assert set(labels) == set(BLOCK_ONLY_FIELDS) | NOT_BLOCK_ONLY_LABELS

@@ -5,6 +5,7 @@ most-trusted component, and an over-budget block silently truncated is the same 
 is a contract: the control eval's stripper matches it byte-for-byte (spec 7.1).
 """
 from __future__ import annotations
+from dataclasses import fields
 from retinue.ledger.projection import RelationshipRecord
 
 BLOCK_HEADER = "# Relationship Record"
@@ -37,7 +38,12 @@ def render_block(record: RelationshipRecord, *, budget: int = 1024) -> str:
     # with a break, which is the one case that produces an internal blank line - and that is the
     # case the control's stripper truncates on. `value and` keeps an honestly empty value
     # renderable, since "".splitlines() is [] and would otherwise be refused.
-    for name, value in vars(record).items():
+    #
+    # `fields(record)` rather than `vars(record)`: it names the intent - the record's DECLARED
+    # fields - and does not depend on the record carrying a `__dict__`, which `slots=True` would
+    # take away, turning this guard into a TypeError at render time.
+    for name in (f.name for f in fields(record)):
+        value = getattr(record, name)
         if isinstance(value, str) and value and value.splitlines() != [value]:
             raise BlockValueUnrenderable(
                 f"{name} contains a line break, so rendering it would forge a block line or an "
