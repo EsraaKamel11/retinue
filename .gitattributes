@@ -1,0 +1,5 @@
+# tools/battery.sh is executed by bash on the Linux CI runner and on the authoring machine, which
+# is Windows with core.autocrlf=true. Without this line a checkout there re-materialises the
+# script with CRLF endings and bash fails on the carriage returns, in a way that looks like a bug
+# in the script rather than in the checkout.
+*.sh text eol=lf

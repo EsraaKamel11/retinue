@@ -1742,42 +1742,129 @@ git commit -m "feat: synthetic fixtures, seeded roster generator, and the RETINU
 - Create: `README.md`, `tools/battery.sh`, `.github/workflows/ci.yml`
 - Test: (the battery and the CI negative control are the test; run the battery)
 
-- [ ] **Step 1: Write `tools/battery.sh`**
+- [x] **Step 1: Write `tools/battery.sh`** - as shipped:
 
 ```bash
 #!/usr/bin/env bash
 # The repo battery (spec section 11). Zero hits expected on every grep.
-# Patterns are CONSTRUCTED, never spelled: every tracked file, this script and the plan that
-# embeds it included, must pass the battery it defines.
+#
+# Patterns are CONSTRUCTED, never spelled: every tracked file - this script and the plan section
+# that embeds it included - has to pass the battery it defines. A gate whose own pattern appears
+# literally in a file it scans can only be made green by exempting something, and an exemption is
+# how a gate stops measuring.
+#
+#   bash tools/battery.sh
+#   PYTHON=/path/to/python bash tools/battery.sh   # when `python` on PATH is not the venv's
 set -u
+
+# `git ls-files` answers RELATIVE to the current directory and lists only what sits beneath it, so
+# a run from tools/ would scan a subset of the tree and print exactly the same "ok" as a full run.
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf 'battery: not inside a git work tree, so there is nothing to scan\n' >&2
+  exit 1
+}
+cd "$root" || exit 1
+
+PY="${PYTHON:-python}"
 fail=0
-say() { printf "%-40s %s\n" "$1" "$2"; }
-docs=$(git ls-files '*.md')
-all=$(git ls-files ':!*.whl')
-EMD=$(printf '\342\200\224')      # octal, so the byte sequence appears in no tracked file
-n=$(grep -c "$EMD" /dev/null $docs 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
-[ "$n" -eq 0 ] && say "em dashes" "ok" || { say "em dashes" "$n FAIL"; fail=1; }
-for t in prov{able,en}; do
-  n=$(grep -cIwi "$t" /dev/null $all 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
-  [ "$n" -eq 0 ] && say "adjective $t" "ok" || { say "adjective $t" "$n FAIL"; fail=1; }
-done
-KW="result""_type="
-n=$(grep -cI "$KW" /dev/null $all 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
-[ "$n" -eq 0 ] && say "removed 2.x result kwarg" "ok" || { say "removed 2.x result kwarg" "$n FAIL"; fail=1; }
-STALE="claude-[23]|gpt-""4"
-n=$(grep -cIE "$STALE" /dev/null $all 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
-[ "$n" -eq 0 ] && say "stale model ids" "ok" || { say "stale model ids" "$n FAIL"; fail=1; }
-# Client/organisation tokens: the list lives OUTSIDE the repo (untracked; see .gitignore) - a
-# tracked list would ship the very tokens it bans. Optional on a fresh clone by design.
-if [ -f tools/banned_tokens.txt ]; then
-  while read -r tok; do
+say() { printf '%-40s %s\n' "$1" "$2"; }
+
+# -z with mapfile rather than word splitting: a tracked path containing a space would otherwise
+# split into two names that do not exist, grep would error on both, and that file would go
+# unscanned while every gate still reported "ok".
+mapfile -d '' -t ALL < <(git ls-files -z ':!*.whl')
+
+# One pattern over the tracked list. Prints a count, or ERR<status> when grep ITSELF failed.
+#
+# grep -c over a SINGLE file prints a bare count with no "filename:" prefix, so summing the last
+# colon-separated field would read a real count as a filename and add zero, and a hit would vanish
+# into an "ok". /dev/null is a second file, which forces the prefix on unconditionally.
+#
+# grep exits 0 with matches, 1 with none, and >1 on an ERROR: a bad pattern, a tracked file that
+# is not on disk, a build that dies. Folding an error into "0 hits" is how a gate reports ok for a
+# scan that never happened, and this script has already been caught doing it - see the token pass.
+hits() {
+  local out rc
+  out=$(grep -c "$1" -e "$2" -- "${ALL[@]}" /dev/null)
+  rc=$?
+  if [ "$rc" -gt 1 ]; then printf 'ERR%s\n' "$rc"
+  else printf '%s\n' "$out" | awk -F: '{s+=$NF} END{print s+0}'
+  fi
+}
+
+gate() {  # gate <label> <output of hits>
+  case "$2" in
+    0)    say "$1" "ok" ;;
+    ERR*) say "$1" "grep FAILED ($2), which is not zero hits"; fail=1 ;;
+    *)    say "$1" "$2 FAIL"; fail=1 ;;
+  esac
+}
+
+# Two anti-vacuity guards, because every gate below reports zero hits over a tree it never read,
+# and zero is exactly what "ok" means here.
+#   1. An empty file list - wrong directory, a pathspec that excluded everything, a repository
+#      with nothing tracked yet. The battery would exit 0 having read nothing at all.
+[ "${#ALL[@]}" -gt 0 ] || { printf 'battery: no tracked files to scan\n' >&2; exit 1; }
+#   2. The counting machinery itself - a mis-summed awk field, a grep that will not run, a list of
+#      names that are not on disk. A pattern that MUST hit is the only thing that tells a clean
+#      tree apart from a battery that has quietly stopped reading one.
+control=$(hits -I "retinue")
+case "$control" in
+  ''|0|ERR*)
+    printf 'battery: the positive control returned %s, so the greps are not reading the tree\n' \
+      "${control:-nothing}" >&2
+    exit 1 ;;
+esac
+say "scanning" "${#ALL[@]} tracked files (control: $control hits)"
+
+EMD=$(printf '\342\200\224')   # octal, so the byte sequence itself appears in no tracked file
+gate "em dashes" "$(hits -I "$EMD")"
+
+# Word-bounded, because a substring check is WRONG here: "provenance" contains one of the two
+# adjectives, and vendor/PROVENANCE.md records where the vendored wheel came from. Correct English
+# is never renamed to satisfy a check that should not have fired.
+for t in prov{able,en}; do gate "adjective $t" "$(hits -Iwi "$t")"; done
+
+gate "removed 2.x result kwarg" "$(hits -I "result""_type=")"
+gate "stale model ids"          "$(hits -IE "claude-[23]|gpt-""4")"
+
+# Client and organisation tokens. The list lives OUTSIDE this repository (untracked, ignored by
+# name in .gitignore): a tracked list would ship into the reviewer's clone the very tokens it
+# exists to keep out. So the pass is optional by design, it SAYS when it did not run rather than
+# reporting an "ok" it never earned, and a hit prints [redacted] rather than the token itself.
+TOKENS=tools/banned_tokens.txt
+if [ -f "$TOKENS" ]; then
+  entries=0
+  # `|| [ -n "$tok" ]`: read returns non-zero on a final line with no trailing newline, and the
+  # plain form drops that entry in silence - one token never checked, reported as a clean pass.
+  while read -r tok || [ -n "$tok" ]; do
     case "$tok" in ''|'#'*) continue;; esac
-    n=$(grep -cIi "$tok" /dev/null $all 2>/dev/null | awk -F: '{s+=$NF} END{print s+0}')
-    [ "$n" -eq 0 ] && say "token" "ok" || { say "token [redacted]" "$n FAIL"; fail=1; }
-  done < tools/banned_tokens.txt
+    entries=$((entries + 1))
+    # -i, and deliberately NOT -F. The entries are literal tokens, so -F reads as the right flag,
+    # and it is how this pass first shipped: the msys GNU grep 3.0 on the authoring machine ABORTS
+    # when -i and -F are combined, the abort printed nothing, the sum read zero, and the gate
+    # reported ok for a token occurring 113 times in the tree. Entries are therefore basic regular
+    # expressions - write a metacharacter escaped - and the status check in `hits` above is what
+    # makes the next crash of that family a red gate instead of a clean pass.
+    gate "token [redacted]" "$(hits -Ii "$tok")"
+  done < "$TOKENS"
+  say "token list" "$entries entries checked"
+else
+  say "token list" "absent by design (untracked) - this pass did NOT run"
 fi
-python tools/fleet_audit.py || fail=1
-python -m pytest -q || fail=1
+
+# Spec section 11 names one grep family this script does not implement: marketing figures. That is
+# a decision rather than an oversight, and it belongs here and not only in a report. A marketing
+# figure has no reliable textual signature - every byte budget, threshold, version and count in
+# this repository is a number sitting in prose - so a pattern loose enough to catch one reddens on
+# correct text, and a gate that cries wolf gets exempted until it measures nothing. The governing
+# plan serves that intent differently, at Tasks 10 and 24: every invented figure hand-diffed
+# against the published ranges of the firms on the untracked list. Named absent beats missing.
+
+"$PY" tools/fleet_audit.py || fail=1
+# No second -q: pyproject's addopts already carries one, and -qq deletes the "N passed" line, so
+# the battery would be reporting a suite result it never printed.
+"$PY" -m pytest || fail=1
 exit $fail
 ```
 
@@ -1788,65 +1875,138 @@ reviewer receives; that is why the battery treats the file as optional (a fresh 
 battery without the token pass - those greps belong to the author's pipeline, not the reviewer's)
 and prints `[redacted]` on a hit rather than the token.
 
-- [ ] **Step 2: Write `README.md`** - short: what retinue is (three sentences from the spec's
-  header), install (`pip install -r requirements.txt`), the three lanes with their env vars, and
-  the Designed-vs-Built table copied from spec section 12 with P1 rows flipped to **Built** as
-  they land (each flip in the same commit as its feature - never before).
+**Eight changes from this task's first draft of the script, each because the draft could pass
+while measuring less than it claimed** (recorded here so the plan matches what shipped):
+(1) `cd` to the work-tree root, since `git ls-files` answers relative to the cwd and a run from a
+subdirectory scans a subset and still prints "ok"; (2) the vacuity guard, since an empty file list
+makes every gate report zero; (3) the positive control, since a broken `hits` reports zero the same
+way a clean tree does; (4) `-z` plus `mapfile`, since a path with a space word-splits into names
+that do not exist and that file goes unscanned; (5) `read -r tok || [ -n "$tok" ]`, since a token
+list without a trailing newline silently drops its last entry; (6) **grep's own exit status
+checked**, since grep exits above 1 on an error and folding that into "0 hits" reports a scan that
+never happened as a clean pass; (7) `python -m pytest` without a second `-q`, since `addopts`
+already carries one and `-qq` deletes the "N passed" line; (8) the em dash gate widened from `*.md`
+to every tracked file, because the rule is "no em dash in a tracked file" and a docstring is a
+tracked file (verified: zero hits tree-wide either way). `PYTHON` is honoured for the interpreter
+so the script is runnable outside CI's PATH.
 
-- [ ] **Step 2b: Write `.github/workflows/ci.yml`** - the spec's 2.2 negative control lives in
-  CI or it does not exist ("a lane that can silently skip forever is a vacuous gate"):
+Change (6) was not theoretical, and it is the reason to plant a violation rather than reason about
+one. The first draft used `-F` on the token grep so entries would match literally. The msys GNU
+grep 3.0 on the authoring machine ABORTS with SIGABRT when `-i` and `-F` are combined: the abort
+printed nothing, the sum read zero, and the gate reported `ok` for a token occurring 113 times in
+the tree - a gate green precisely because it had crashed, found only because the planted red did
+not appear. The token grep now uses `-i` alone, and every gate treats a grep status above 1 as red.
+
+- [x] **Step 2: Write `README.md`** - what retinue is (three sentences from the spec's header),
+  install (`pip install -r requirements.txt`), the three lanes with their env vars, and the
+  Designed-vs-Built table from spec section 12 with P1 rows flipped to **Built** as they land
+  (each flip in the same commit as its feature - never before). Four things it must state plainly,
+  because each is a place the artifact could quietly overclaim: the Postgres lane has never
+  executed anywhere and CI is its first run; what the three live captures settled (`agent_type`
+  exists and is spelled `research`; `tools=` restricts while `allowed_tools=` only pre-approves;
+  the spawn tool is one tool under two names by surface, `Task` in the init roster and `Agent` in
+  tool-use blocks); that the session is not hermetic by default and `setting_sources=[]` closes
+  only part of it, with `strict_mcp_config` named as the field that would close the MCP half
+  (source-cited at 0.2.130, not captured); and the fixture-provenance limit, both halves.
+
+- [x] **Step 2b: Write `.github/workflows/ci.yml`** - the spec's 2.2 negative control lives in
+  CI or it does not exist ("a lane that can silently skip forever is a vacuous gate"). As shipped:
 
 ```yaml
 name: ci
-on: [push]
+# workflow_dispatch as well as push, because the postgres lane below has never executed anywhere
+# and being able to start it by hand is worth one line.
+on: [push, workflow_dispatch]
+
 jobs:
   default-lane:
+    # Spec 2.1: no daemon, no network, no key. This job is the claim's only standing evidence.
     runs-on: ubuntu-latest
     strategy:
-      # Both ends of the range the manifest claims (requires-python >=3.11). Testing only the
-      # floor while developers run the ceiling lets a version-specific failure ship unseen:
-      # pydantic-graph emits a no-current-event-loop DeprecationWarning under run_sync on 3.13
-      # that 3.11 never shows, so "output pristine" means different things on each.
+      # Independent lanes: a 3.11 failure must not cancel the 3.13 run and hide a second one.
+      fail-fast: false
       matrix:
+        # Both ends of the range the manifest claims (requires-python >=3.11). Testing only the
+        # floor while developers run the ceiling lets a version-specific failure ship unseen.
+        # No specific divergence is asserted here: at the time of writing the suite runs clean on
+        # 3.13.9 under `-W error::DeprecationWarning`, which is the point of running the matrix
+        # rather than writing down a mechanism - the matrix is what would notice if that changed.
         python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # Install order lives in the file: the vendored wheel first, then this package.
       - run: pip install -r requirements.txt
-      - run: python -m pytest -q            # no daemon, no network, no key
+      # No second -q: pyproject's addopts already carries one, and -qq deletes the count line.
+      - run: python -m pytest
+      # The battery's grep gates are lane-independent. Running them only in the postgres job
+      # would make doc hygiene conditional on a service container coming up.
+      - run: bash tools/battery.sh
+
   postgres-lane:
+    # Spec 2.2's negative control. NOTE: this lane has never executed anywhere - there is no
+    # Docker on the authoring machine - so this workflow is its first run.
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16.4                # pinned exactly; matches the managed target's major
+        # Pinned exactly, and the same tag as docker-compose.yml, which is the other documented
+        # way to supply the DSN. It matches the managed-Postgres target's major version.
+        image: postgres:16.4
         env:
           POSTGRES_PASSWORD: retinue
+          # POSTGRES_USER is deliberately unset, so the role is the image default `postgres`,
+          # which is the role the DSN below names.
           POSTGRES_DB: retinue
         ports:
+          # The job runs on the runner host rather than inside a container, so the service is
+          # reached through this published port at localhost, not at a container hostname.
           - 5432:5432
         options: >-
-          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+          --health-cmd "pg_isready -U postgres -d retinue"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       RETINUE_PG_DSN: postgresql://postgres:retinue@localhost:5432/retinue
-      RETINUE_PG_REQUIRED: "1"              # the negative control: a silent skip is a red build
+      # The negative control. tests/ledger/conftest.py compares this against the exact string "1"
+      # and calls pytest.fail when the DSN is missing, so the lane cannot silently skip here.
+      # A lane that can skip forever is a vacuous gate; this makes vacuity a red build.
+      RETINUE_PG_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install -r requirements.txt
-      - run: python -m pytest -q
+      - run: python -m pytest
       - run: bash tools/battery.sh
 ```
 
-- [ ] **Step 3: Run the battery** - Expected: exit 0, every line ok.
-- [ ] **Step 4: Commit**
+Three changes from this task's first draft of the workflow. The health command matches
+`docker-compose.yml`'s rather than being bare `pg_isready`, because that file's own comment
+records why `-d` matters: without it `pg_isready` can report healthy during the entrypoint's
+socket-only init phase, before the server accepts TCP. The battery moved into the default lane as
+well, because the grep gates are lane-independent and running them only beside a service container
+makes doc hygiene conditional on that container coming up. And the matrix comment no longer
+asserts a pydantic-graph no-current-event-loop DeprecationWarning under `run_sync` on 3.13: the
+suite calls `run_sync` in two modules and runs clean on 3.13.9 under `-W
+error::DeprecationWarning`, so that mechanism does not reproduce and stating it would have put a
+fabricated fact in a tracked file.
+
+Also in this task: `.gitattributes` with `*.sh text eol=lf`. The authoring machine has
+`core.autocrlf=true`, so without it a checkout re-materialises `battery.sh` with CRLF endings and
+bash fails on the carriage returns, looking like a bug in the script rather than in the checkout.
+
+- [x] **Step 3: Run the battery** - Expected: exit 0, every line ok. Every gate demonstrated red
+  first, with the planted violation in a TRACKED file (a plant in an untracked scratch file is
+  invisible to `git ls-files` and would show a working gate as broken).
+- [x] **Step 4: Commit**
 
 ```bash
-git add README.md tools/battery.sh .gitignore .github/workflows/ci.yml
-git commit -m "docs: README seed, the battery with an untracked local token list, and CI with the Postgres negative control"
+git add README.md tools/battery.sh .gitignore .gitattributes .github/workflows/ci.yml
+git commit   # subject under ~72 chars, narrative in the body
 ```
 
 ---

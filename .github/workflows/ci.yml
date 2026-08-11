@@ -1,0 +1,69 @@
+name: ci
+# workflow_dispatch as well as push, because the postgres lane below has never executed anywhere
+# and being able to start it by hand is worth one line.
+on: [push, workflow_dispatch]
+
+jobs:
+  default-lane:
+    # Spec 2.1: no daemon, no network, no key. This job is the claim's only standing evidence.
+    runs-on: ubuntu-latest
+    strategy:
+      # Independent lanes: a 3.11 failure must not cancel the 3.13 run and hide a second one.
+      fail-fast: false
+      matrix:
+        # Both ends of the range the manifest claims (requires-python >=3.11). Testing only the
+        # floor while developers run the ceiling lets a version-specific failure ship unseen.
+        # No specific divergence is asserted here: at the time of writing the suite runs clean on
+        # 3.13.9 under `-W error::DeprecationWarning`, which is the point of running the matrix
+        # rather than writing down a mechanism - the matrix is what would notice if that changed.
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      # Install order lives in the file: the vendored wheel first, then this package.
+      - run: pip install -r requirements.txt
+      # No second -q: pyproject's addopts already carries one, and -qq deletes the count line.
+      - run: python -m pytest
+      # The battery's grep gates are lane-independent. Running them only in the postgres job
+      # would make doc hygiene conditional on a service container coming up.
+      - run: bash tools/battery.sh
+
+  postgres-lane:
+    # Spec 2.2's negative control. NOTE: this lane has never executed anywhere - there is no
+    # Docker on the authoring machine - so this workflow is its first run.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Pinned exactly, and the same tag as docker-compose.yml, which is the other documented
+        # way to supply the DSN. It matches the managed-Postgres target's major version.
+        image: postgres:16.4
+        env:
+          POSTGRES_PASSWORD: retinue
+          # POSTGRES_USER is deliberately unset, so the role is the image default `postgres`,
+          # which is the role the DSN below names.
+          POSTGRES_DB: retinue
+        ports:
+          # The job runs on the runner host rather than inside a container, so the service is
+          # reached through this published port at localhost, not at a container hostname.
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d retinue"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      RETINUE_PG_DSN: postgresql://postgres:retinue@localhost:5432/retinue
+      # The negative control. tests/ledger/conftest.py compares this against the exact string "1"
+      # and calls pytest.fail when the DSN is missing, so the lane cannot silently skip here.
+      # A lane that can skip forever is a vacuous gate; this makes vacuity a red build.
+      RETINUE_PG_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest
+      - run: bash tools/battery.sh
