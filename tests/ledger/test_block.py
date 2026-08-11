@@ -29,6 +29,47 @@ def test_block_starts_with_the_header_contract():
     assert "\n\n" not in out
     assert out.endswith("\n") and not out.endswith("\n\n")
 
+# The rendering, FROZEN. Written as literals rather than joined from a list of labels, because a
+# pin built out of the thing it guards agrees with every change to that thing and pins nothing.
+# The header is the single deferred piece, on purpose: it is a constant every consumer imports, so
+# renaming it is a refactor that must stay invisible, and spelling it here would make this pin the
+# one place that noticed.
+_PINNED_FULL = (f"{BLOCK_HEADER}\n"
+                "investor: inv-1\n"
+                "stated_check_size: 250000\n"
+                "pass_reason: stage too early\n"
+                "last_contact: 2030-01-02T00:00:00+00:00\n"
+                "jurisdiction: US\n"
+                "domain: example.test\n")
+
+_PINNED_ABSENT = (f"{BLOCK_HEADER}\n"
+                  "investor: inv-1\n"
+                  "stated_check_size: not stated\n"
+                  "pass_reason: none recorded\n"
+                  "last_contact: never\n"
+                  "jurisdiction: unknown\n"
+                  "domain: unknown\n")
+
+def test_the_rendered_block_is_pinned_byte_for_byte():
+    """The whole rendering in one literal, so a refactor of how it is built ships nothing new.
+
+    The other tests here assert substrings and structural properties, and every one of them
+    survives a rendering that changed its label ORDER, dropped a line, or grew one. Order is part
+    of the contract: the control eval's stripper walks the block's lines from the header, so a
+    reordering that put a non-block line between two block lines would stop the walk early.
+    """
+    assert render_block(rec()) == _PINNED_FULL
+
+def test_the_absent_rendering_is_pinned_too():
+    """The fallback half of every field, which the full record never exercises.
+
+    `last_contact: never`, `jurisdiction: unknown` and `domain: unknown` are asserted NOWHERE else
+    in this file, so a pin of the full record alone would leave three of the six fallbacks free to
+    change under a refactor that claimed to preserve the rendering.
+    """
+    assert render_block(rec(stated_check_size=None, pass_reason="", last_contact=None,
+                            jurisdiction=None, domain=None)) == _PINNED_ABSENT
+
 def test_missing_required_field_raises_naming_it():
     for hole in (None, ""):                       # absent-as-None and empty-string both refuse
         with pytest.raises(BlockFieldMissing, match="investor_id"):
