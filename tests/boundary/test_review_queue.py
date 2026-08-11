@@ -122,8 +122,16 @@ def test_postgres_sink_persists_a_row():
     call reached the database, and it holds on a fresh database and a reused one alike. Nothing
     here is timed: the witness is a count, not a duration.
 
-    Re-running is safe. A second run writes a second identical row, so the count still increases
-    by one and the read-back still matches, and the table is never cleaned up by this test.
+    The ORDERING is the third piece, and the delta does not buy it. A strict increase witnesses
+    that a correct row APPEARED; an unordered `fetchone` may then read a DIFFERENT row that
+    happens to share the queue name and the timestamp, which is any earlier run's row whenever
+    `before >= 1`. A sink writing the right name and time with the WRONG PAYLOAD would slip
+    through exactly there. `id` is the GENERATED ALWAYS identity, so descending by it and taking
+    one row reads the newest, which is the row this run just wrote.
+
+    Re-running is safe. A second run writes a second identical row, since the table declares no
+    uniqueness on that pair, so the count still increases by one, the ordering still selects this
+    run's row, and the table is never cleaned up by this test.
     """
     dsn = os.environ.get("RETINUE_PG_DSN")
     if not dsn:
@@ -140,7 +148,10 @@ def test_postgres_sink_persists_a_row():
     q.put("human-review", handoff())
     with psycopg.connect(dsn) as c:
         after = c.execute("SELECT count(*) " + MINE, (NOW(),)).fetchone()[0]
-        row = c.execute("SELECT handoff, enqueued_at " + MINE, (NOW(),)).fetchone()
+        # ORDER BY on the read-back only. The two counts above aggregate, so an ordering there
+        # would be a column outside the aggregate rather than a tie-break.
+        row = c.execute("SELECT handoff, enqueued_at " + MINE + " ORDER BY id DESC LIMIT 1",
+                        (NOW(),)).fetchone()
     assert after == before + 1, f"this run's own write did not reach the table ({before} -> {after})"
     assert row is not None, "the sink wrote no row this test can identify as its own"
     stored, at = row
