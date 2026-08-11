@@ -35,14 +35,18 @@ AGENTS: dict[str, AgentDefinition] = {
 #: spawn tool alone resolves every specialist to zero tools, silently, with the options-shape
 #: tests still green. Its real job is to drop what NO agent needs - Bash, Write, Edit, WebFetch
 #: and WebSearch are absent, so the research specialist cannot reach an outbound surface even
-#: by inheritance. Per-agent bounds live in each AgentDefinition; the orchestrator's own bound
-#: is `allowed_tools` plus the hook.
+#: by inheritance. WITNESSED at CLI 2.1.222: a captured `system:init` resolved four tools, all of
+#: them named here, with no CLI default surviving beside them - `tools=` restricts rather than
+#: proposes. Per-agent bounds live in each AgentDefinition. This ceiling is the ORCHESTRATOR's
+#: bound too, because `allowed_tools` pre-approves and restricts nothing: the same payload shows
+#: Glob, Grep and Read resolved into the session while the allow-list held only the spawn names.
 SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob")
 
 def build_options(hook) -> ClaudeAgentOptions:
     # `tools` is the session roster; `allowed_tools` is the auto-approve list. Both are set:
     # omitting `tools` inherits the CLI default, and omitting `allowed_tools` would leave the
-    # orchestrator's spawn-only bound unstated.
+    # spawn call needing an approval that nobody in an unattended run is there to give. It states
+    # no bound - it pre-approves, and the bound is `tools` above.
     #
     # `setting_sources=[]` is the third, and what it does here is measured, not assumed. Left
     # unset it defaults to None, which loads every filesystem settings source - and `agents`
@@ -60,10 +64,13 @@ def build_options(hook) -> ClaudeAgentOptions:
     # tool resolves INTO the session, which is the property those servers would have to breach
     # to matter.
     #
-    # The reason to care is the fixtures. The design survives an inherited agent (the session
-    # ceiling intersects it down to the same four tools, and an unrecognised `agent_type` routes
-    # to the human), but a payload captured from a session one machine's configuration helped
-    # shape is not the canonical artifact the default lane replays forever.
+    # The reason to care is the fixtures. The design should survive an inherited agent - the
+    # ceiling would intersect its roster down to the same four tools, and an unrecognised
+    # `agent_type` routes to the human by `decide`'s own table - but both are INFERRED for that
+    # case, since no inherited agent was spawned in any of the three captures. Labelled rather
+    # than dropped, because a block that advertises measurement may not smuggle in an inference.
+    # A payload captured from a session one machine's configuration helped shape is not the
+    # canonical artifact the default lane replays forever.
     return ClaudeAgentOptions(
         agents=AGENTS,
         tools=list(SESSION_TOOLS),
