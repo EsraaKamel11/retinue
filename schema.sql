@@ -36,3 +36,13 @@ DROP TRIGGER IF EXISTS trg_touchpoints_no_truncate ON touchpoints;
 CREATE TRIGGER trg_touchpoints_no_truncate
     BEFORE TRUNCATE ON touchpoints
     FOR EACH STATEMENT EXECUTE FUNCTION touchpoints_append_only();
+-- Outcomes resolve over weeks: occurred_at and observed_at diverge structurally, and a
+-- later-resolving outcome UPDATES this row - never the touchpoint (spec 5.1).
+CREATE TABLE IF NOT EXISTS outcomes (
+    outcome_key TEXT PRIMARY KEY,
+    investor_id TEXT NOT NULL,
+    mandate_id  TEXT NOT NULL,
+    signal      TEXT NOT NULL CHECK (signal IN ('replied','meeting_booked','check_written')),
+    occurred_at TIMESTAMPTZ NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL
+);
