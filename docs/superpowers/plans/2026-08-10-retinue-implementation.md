@@ -3195,12 +3195,26 @@ def test_postgres_sink_persists_a_row():
     # is the ONLY lane that can execute `postgres_sink`'s body, so a count over a reused database
     # would pass with that body emptied or its parameters mis-bound, and the blind spot the matrix
     # honestly records would stay open even on the one run that could close it. The injected clock
-    # is what makes the row identifiable: NOW is fixed, so the test can read back the row IT wrote.
+    # is what makes the row READABLE, and a count across the put is what makes it THIS RUN'S.
+    #
+    # AMENDED AGAIN the same day, by the implementer catching the controller: selecting on the
+    # fixed NOW is NOT enough on its own. The clock is deterministic ACROSS RUNS, so every run
+    # writes 2030-04-01 and the signature identifies the TEST rather than the ROW. Against a
+    # persistent local database the first amendment failed the same way the original did, just
+    # more narrowly, and M13 would have stayed green. CI's fresh container hides it, which is
+    # exactly the environment where nobody would notice. The count across the put is what fixes it.
     with psycopg.connect(dsn) as c:
+        before = c.execute("SELECT count(*) FROM review_queue WHERE queue_name='human-review'"
+                           ).fetchone()[0]
+    q.put("human-review", handoff())
+    with psycopg.connect(dsn) as c:
+        after = c.execute("SELECT count(*) FROM review_queue WHERE queue_name='human-review'"
+                          ).fetchone()[0]
         row = c.execute("SELECT handoff, enqueued_at FROM review_queue "
-                        "WHERE queue_name='human-review' AND enqueued_at = %s",
-                        (NOW(),)).fetchone()
-    assert row is not None, "the sink wrote no row this test can identify as its own"
+                        "WHERE queue_name='human-review' AND enqueued_at = %s "
+                        "ORDER BY id DESC LIMIT 1", (NOW(),)).fetchone()
+    assert after == before + 1, "the sink wrote no new row; a stale row would satisfy a bare count"
+    assert row is not None
     stored, at = row
     assert stored == handoff().model_dump()   # the payload, not merely a count
     assert at == NOW()
