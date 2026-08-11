@@ -51,3 +51,15 @@ CREATE TABLE IF NOT EXISTS outcomes (
     occurred_at TIMESTAMPTZ NOT NULL,
     observed_at TIMESTAMPTZ NOT NULL
 );
+-- The DURABLE half of escalation (spec 8). The imported in-process queues state their own limit:
+-- going out of scope takes the escalations with them. This table is what survives a process.
+-- Explicitly not a graph-checkpointer. `resolved_at` is declared and nothing writes it yet: the
+-- enqueue is what this task makes durable, and a column added later would need its own ALTER
+-- (see this file's opening note), so it is cheaper to declare nullable now than to migrate later.
+CREATE TABLE IF NOT EXISTS review_queue (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    queue_name  TEXT NOT NULL,
+    handoff     JSONB NOT NULL,
+    enqueued_at TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ
+);
