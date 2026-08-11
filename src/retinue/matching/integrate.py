@@ -36,7 +36,16 @@ def candidate_for(row: dict, store: TouchpointStore, *, now: datetime) -> Candid
         # is roster input; the record is what this system has actually recorded about the party,
         # and jurisdiction decides membership. Reversed, a stale row would readmit someone the
         # ledger places outside consent - a hard exclusion lost to input that was never checked.
-        jurisdiction=rec.jurisdiction or row.get("jurisdiction"),
+        #
+        # `is not None`, not truthiness: an identity touchpoint carrying an EMPTY jurisdiction is
+        # the ledger saying "no consent recorded", which is a different fact from having no
+        # identity record at all. Under `or` both collapse to the roster row, so a malformed
+        # identity is silently readmitted by less trustworthy data - the permissive direction,
+        # triggered by data rather than by an edit. Absent record and absent KEY both stay `None`
+        # and still fall back, which is the same distinction one layer down: no opinion is not
+        # the same fact as an opinion that names nothing.
+        jurisdiction=(rec.jurisdiction if rec.jurisdiction is not None
+                      else row.get("jurisdiction")),
         # `None`, never `0`. Zero days means touched today; absent means never touched, which is
         # the state the cold-start commitment turns on - `relationship_score` reads `None` as 0.0
         # and lets similarity carry the candidate, where a 0 would read as maximum recency.

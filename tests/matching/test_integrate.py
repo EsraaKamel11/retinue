@@ -84,6 +84,21 @@ def test_ledger_identity_outranks_the_roster_row_on_jurisdiction():
     ranked, needs = shortlist([row()], MANDATE, embed_score=lambda c: 1.0, store=store, now=NOW)
     assert (ranked, needs) == ([], [])
 
+def test_an_empty_ledger_jurisdiction_is_a_fact_not_an_absence():
+    # `None` and `""` are different facts, and only one of them is an absence. No identity
+    # touchpoint means the ledger holds no opinion, and the roster row standing in is reasonable.
+    # An identity touchpoint recording an EMPTY jurisdiction means a record exists and names no
+    # consent. Under `or` the two collapse, the roster row's consented value wins, and a malformed
+    # identity record is readmitted by the less trustworthy of the two sources - the permissive
+    # direction, reached by DATA rather than by an edit to the precedence.
+    store = InMemoryStore()
+    store.append(Touchpoint(idempotency_key="inv-1-i", investor_id="inv-1", mandate_id="m-1",
+                            kind="identity", payload={"jurisdiction": ""},
+                            occurred_at=NOW - timedelta(days=5), recorded_at=NOW))
+    ranked, needs = shortlist([row(juris="US")], MANDATE, embed_score=lambda c: 1.0,
+                              store=store, now=NOW)
+    assert (ranked, needs) == ([], [])
+
 def test_projection_unavailable_raises_never_invents_a_candidate():
     class Broken:
         def touchpoints_for(self, i): raise StoreUnavailable("down")
