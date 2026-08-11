@@ -3372,19 +3372,38 @@ from retinue.orchestration.topology import TIERS
 
 CHECKER_TIER = "sonnet-tier"     # >= TIERS["drafting"]; construction raises otherwise
 
-def scripted_transport(path: Path) -> Callable[[list[dict]], CheckerResult]:
-    table = json.loads(Path(path).read_text(encoding="utf-8"))["verdicts"]
-    def transport(messages: list[dict]) -> CheckerResult:
-        content = messages[0]["content"]
-        for row in table:
-            if row["body"] in content:
-                if "flag" in row:
-                    return FlagForReview(reason=row["flag"])
-                vc = ViolationClass(row["violation_class"]) if row.get("violation_class") else None
-                return Verdict(violates=row["violates"], violation_class=vc,
-                               confidence=row["confidence"], span=row.get("span"))
-        raise CheckerUnavailable("no frozen verdict for this draft; the scripted lane never invents a clean")
-    return transport
+**AMENDED 2026-08-11. The transport this block first carried is DEFECTIVE and was measured breaking
+against the committed fixture, not argued about.** It looked a frozen verdict up with bare
+containment, `row["body"] in content`, first match wins. The checker prompt carries the
+**transmitted thread unescaped**, so a counterparty who writes a fixture body's text into the thread
+makes an UNKNOWN draft resolve to that row's clean verdict: the fail-closed guarantee, which is the
+one property this lane exists to hold, breaks on text nobody in this repository wrote. A shorter row
+prefixing a longer one is the same defect from the other side, letting a clean short row answer for
+a violating draft. Do not restore it, and do not treat this as a style preference.
+
+The shipped module is `src/retinue/boundary/checker_lane.py` and it governs. Its shape, and the
+reason for each part, since a plan that names only the outcome invites the defect back:
+
+- **Exact-key lookup on the body recovered from the prompt's `<candidate_draft>` delimiters**, via a
+  named public `candidate_draft_body`. Exact rather than containment removes first-match-wins
+  structurally, because no ordering remains to be first in.
+- **The extraction is GREEDY on purpose.** Leftmost opener to rightmost closer means a forged
+  delimiter can only make the span read MORE than was written, never a prefix of it. More matches no
+  row and fails closed; a prefix would answer a long draft with a short row's verdict, which is the
+  direction that must not exist. Measured over 100 tag-hostile prompt shapes: every span that is not
+  the real body verbatim carries a delimiter, and is therefore unloadable.
+- **A load-time guard refusing three things in one loop**: a duplicate body, a NON-STRING body, and
+  a body carrying any structural delimiter. The second is not hygiene: a row with a null body makes
+  the lookup a CATCH-ALL answering clean for any prompt the extraction cannot read. The third closes
+  a row whose body carries the scaffolding, which a forged opener in the thread can synthesise
+  exactly.
+- **Rows are built into `CheckerResult` objects AT LOAD**, so a malformed row reddens on
+  construction rather than on whichever draft happens to reach it. Verified not to narrow what the
+  lane replays: nine malformed shapes refuse, six legitimate ones load.
+- **A liveness lever is left open and named**: a thread carrying the opening delimiter widens the
+  span on every draft, so a clean covered draft comes back unavailable. Closing it by anchoring on
+  the LAST opener would trade that availability lever for a drafter-controlled NARROWING hole, and
+  narrowing is the unsafe direction. Availability over safety is the correct side of that trade.
 
 def build_checker(transport: Callable[[list[dict]], CheckerResult]) -> Checker:
     return Checker(CHECKER_TIER, TIERS["drafting"], transport)
