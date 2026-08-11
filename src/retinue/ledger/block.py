@@ -30,7 +30,12 @@ _REQUIRED = ("investor_id",)          # identity is required; facts may honestly
 #: with the rest of the block still standing in the "stripped" context.
 _FIELDS: dict[str, Callable[[RelationshipRecord], str]] = {
     "investor": lambda r: f"{r.investor_id}",
-    "stated_check_size": lambda r: f"{r.stated_check_size}" if r.stated_check_size is not None else "not stated",
+    # `:f`, never implicit str(). The same defect as `as_policy_record` and the WORSE half, because
+    # a MODEL reads this line: under str(), `Decimal("2.5E+5")` renders as
+    # `stated_check_size: 2.5E+5` for a figure the record holds as 250000, and the drafting agent
+    # has already drafted from it by the time a human sees the policy record. The two projections
+    # of one record must agree, and this is the one nobody reviews first.
+    "stated_check_size": lambda r: f"{r.stated_check_size:f}" if r.stated_check_size is not None else "not stated",
     "pass_reason": lambda r: r.pass_reason or "none recorded",
     "last_contact": lambda r: r.last_contact.isoformat() if r.last_contact else "never",
     "jurisdiction": lambda r: r.jurisdiction or "unknown",

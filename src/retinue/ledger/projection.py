@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from chaperone.policy.act_classes import ActContext
+from chaperone.policy.types import Record
 from retinue.ledger.models import StoreUnavailable, Touchpoint
 from retinue.ledger.store import TouchpointStore
 
@@ -62,13 +63,24 @@ def build_act_context(store: TouchpointStore, investor_id: str, *,
         sent_count=sum(1 for t in rows if t.kind == "sent"), send_cap=send_cap,
     )
 
-def as_policy_record(record: RelationshipRecord):
-    """The ledger record in the imported policy vocabulary. Money leaves as str-from-Decimal;
-    the policy engine canonicalises on its side."""
-    from chaperone.policy.types import Record
+def as_policy_record(record: RelationshipRecord) -> Record:
+    """The ledger record in the imported policy vocabulary. Money leaves in PLAIN notation, which
+    is NOT `str(Decimal)`.
+
+    `str(Decimal("2.5E+5"))` is `"2.5E+5"`, `normalize_money` fullmatches a decimal-digits pattern
+    which that fails, `evaluate_act_classes` catches the CanonicalizationError and CONTINUES, and
+    the field is dropped from `record_values` altogether. A draft stating a figure the record
+    actually holds then collects `act:figure_not_in_record`. The value is reachable from an
+    ordinary payload: the write barrier refuses floats and unparseable strings, and `"2.5E+5"` is
+    neither. Canonicalising the money upstream detonates this rather than fixing it, since
+    `Decimal("250000").normalize()` IS `Decimal("2.5E+5")`.
+
+    No sentence here says the engine canonicalises on its side. It does so only for values its
+    pattern accepts, and that sentence is what invited the rewrite that breaks this.
+    """
     fields = {"investor_id": record.investor_id}
-    if record.stated_check_size is not None:
-        fields["stated_check_size"] = str(record.stated_check_size)
-    if record.pass_reason:
-        fields["pass_reason"] = record.pass_reason
+    if record.stated_check_size is not None:      # `is not None`, never falsiness: a zero check
+        fields["stated_check_size"] = f"{record.stated_check_size:f}"      # size is a FACT
+    if record.pass_reason:                        # falsiness, matching render_block: an empty
+        fields["pass_reason"] = record.pass_reason                         # reason is an ABSENCE
     return Record(fields=fields)

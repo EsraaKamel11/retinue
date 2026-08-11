@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 import pytest
+from chaperone.policy.canonical import CanonicalizationError, normalize_money
 from chaperone.policy.types import Message
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -54,6 +55,58 @@ def test_tool_name_is_the_imported_single_home():
 def test_policy_record_carries_money_as_string_from_decimal():
     r = as_policy_record(rec())
     assert r.get("stated_check_size") == "250000"
+
+def test_money_crosses_the_boundary_in_plain_notation_never_exponent():
+    """`str(Decimal)` is not a money encoding, and the engine is the one that says so.
+
+    `Decimal("2.5E+5")` reaches the record through an ordinary payload: the write barrier refuses
+    floats and unparseable strings, and `"2.5E+5"` is neither. `str()` emits it unchanged,
+    `normalize_money` fullmatches a decimal-digits pattern which that fails, `evaluate_act_classes`
+    catches the CanonicalizationError and CONTINUES, and the field is dropped from `record_values`
+    entirely. A draft stating a figure the record actually holds then collects
+    `act:figure_not_in_record`, which is a fabrication finding raised against an honest draft.
+
+    The last assertion is the reason, pinned rather than described: it fails if the imported engine
+    ever starts accepting exponent notation, at which point this whole test is measuring nothing
+    and should be revisited rather than trusted. The instinct to canonicalise money upstream makes
+    this worse rather than better, and that is not a matter of taste: `Decimal("250000").normalize()`
+    IS `Decimal("2.5E+5")`.
+    """
+    crossed = as_policy_record(rec(stated_check_size=Decimal("2.5E+5"))).get("stated_check_size")
+    assert crossed == "250000"
+    assert normalize_money(crossed) == Decimal("250000")     # the engine accepts what we hand it
+    with pytest.raises(CanonicalizationError):
+        normalize_money(str(Decimal("2.5E+5")))              # and would have refused str(Decimal)
+
+def test_the_two_projections_of_one_record_agree_on_the_money():
+    """The block and the policy record are two renderings of ONE record, and drafting sees both.
+
+    The model reads the block and the engine reads the policy record, so a divergence between them
+    is a draft judged against a figure it was never shown. This is the assertion that couples the
+    two encodings; fixing either site alone leaves it red. Read back through the control eval's own
+    reader rather than by substring, so the block's line is parsed the same way the eval parses it.
+    """
+    r = rec(stated_check_size=Decimal("2.5E+5"))
+    assert answer_from(render_block(r), "stated_check_size") == "250000"
+    assert as_policy_record(r).get("stated_check_size") == "250000"
+
+def test_a_zero_check_size_is_a_fact_the_policy_record_carries():
+    """`is not None`, never falsiness, and the sharp failure runs opposite to the obvious one.
+
+    A "precision" rewrite to `if record.stated_check_size:` drops a zero from the policy record
+    while `render_block` still writes `stated_check_size: 0`, because block.py already splits these
+    two the same way. The two projections then disagree, and a draft correctly saying zero collects
+    a FIGURE_NOT_IN_RECORD finding for a figure the record holds.
+    """
+    assert as_policy_record(rec(stated_check_size=Decimal("0"))).get("stated_check_size") == "0"
+
+def test_an_empty_pass_reason_is_an_absence_not_a_recorded_reason():
+    """Falsiness for the string field, matching `render_block`'s own split.
+
+    An empty reason is a reason nobody recorded, and carrying `""` into the policy vocabulary
+    states an absence as a fact. `.get` returning None is the record saying it does not hold one.
+    """
+    assert as_policy_record(rec(pass_reason="")).get("pass_reason") is None
 
 def test_parity_drafting_prompt_is_the_same_object():
     from retinue.orchestration.topology import AGENTS

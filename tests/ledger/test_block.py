@@ -99,6 +99,21 @@ def test_optional_fields_render_as_stated_absent_not_invented():
     # `is not None` for money where the string fields use `or`.
     assert "stated_check_size: 0" in render_block(rec(stated_check_size=Decimal("0")))
 
+def test_the_money_line_is_plain_notation_never_exponent():
+    """The half of the money defect a MODEL sees, and it is the worse half.
+
+    `Decimal("2.5E+5")` reaches the record through an ordinary payload, and implicit `str()`
+    renders it here as `stated_check_size: 2.5E+5` for a figure the record holds as 250000. The
+    drafting agent reads this block, so it is shown the exponent form and drafts from it; a human
+    sees the policy record only afterwards. `format(value, 'f')` round trips every value the ledger
+    can hold, checked down to `1E-8`.
+
+    Its own assertion rather than a change to the pins above: `Decimal("250000")` formats
+    identically either way, so a pin that MOVED would mean something was changed that nobody asked
+    to be changed.
+    """
+    assert "stated_check_size: 250000\n" in render_block(rec(stated_check_size=Decimal("2.5E+5")))
+
 def test_budget_exceeded_raises():
     with pytest.raises(BlockBudgetExceeded):
         render_block(rec(pass_reason="x" * 5000), budget=256)
