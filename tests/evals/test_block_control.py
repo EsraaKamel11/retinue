@@ -71,27 +71,109 @@ def test_the_strip_removes_the_whole_block_and_only_the_block():
     assert all(answer_from(stripped, f) is None for f in BLOCK_ONLY_FIELDS)
     assert stripped == f"{HEAD}\n\n{TAIL}"
 
-def test_a_block_with_no_boundary_after_it_raises_rather_than_eating_the_prompt():
+def test_a_block_with_no_blank_line_after_it_keeps_the_instruction():
     """The hollow control arrives through prompt ASSEMBLY, not through the rendering.
 
-    `render_block` already ends in one newline, so the natural concatenation adds no separator -
-    and then there is no blank line after the block at all. Taking everything from the header
-    onward removes the instruction along with the block, all three questions fail because NOTHING
-    WAS ASKED OF ANYONE, and the control reports the block load-bearing on the strength of a
-    prompt that no longer asks anything. That is M8 arriving as a prompt shape rather than as an
-    edit, and the fixture with its explicit separator never builds it.
+    `render_block` already ends in one newline, so the natural concatenation adds no separator,
+    and then there is no blank line after the block at all. A stripper that took everything from
+    the header onward would remove the instruction along with the block; all three questions then
+    fail because NOTHING WAS ASKED OF ANYONE, and the control reports the block load-bearing on
+    the strength of a prompt that no longer asks anything.
 
-    Unlocatable is not the same as absent, and both raise, on one doctrine.
+    The block's end is not a blank line. It is the last line carrying one of the block's own
+    labels, so the tail needs no separator to survive.
     """
     p = f"{HEAD}\n\n" + render_block(record()) + TAIL          # no separating newline
-    with pytest.raises(ValueError, match="cannot be located"):
-        strip_block(p)
+    assert strip_block(p) == f"{HEAD}\n\n{TAIL}"
+
+def test_an_instruction_carrying_a_colon_is_not_read_as_a_block_line():
+    """The measured shape that made the raise above the wrong answer, and the round-2 defect.
+
+    A stripper that told block from tail by asking whether every remaining line held ": " read
+    `Task: draft a short follow-up.` as block, because for a ONE-LINE instruction "every line" is
+    one line and a single colon anywhere in it suffices. The strip then returned the head alone
+    and the control went green over a prompt that asked nothing. An ordinary instruction carrying
+    an ordinary colon is not a rare shape, so this is pinned separately from the plain tail above:
+    that one reddens if the walk stops consuming block lines, this one reddens if the walk ever
+    starts guessing from punctuation again.
+    """
+    tail = "Task: draft a short follow-up."
+    stripped = strip_block(f"{HEAD}\n\n" + render_block(record()) + tail)
+    assert stripped == f"{HEAD}\n\n{tail}"
+    assert all(answer_from(stripped, f) is None for f in BLOCK_ONLY_FIELDS)
+
+def test_a_multi_paragraph_tail_survives_whole_including_its_first_paragraph():
+    """Partitioning on the first blank line ate the first paragraph of a two-paragraph tail.
+
+    That blank line is inside the TAIL, not after the block, and nothing about "first blank line
+    after the header" can tell the two apart. Walking the block's own lines does not have to: the
+    walk has already stopped by the time the tail's blank line is reached.
+    """
+    tail = "Draft a short follow-up.\n\nBe brief."
+    assert strip_block(f"{HEAD}\n\n" + render_block(record()) + tail) == f"{HEAD}\n\n{tail}"
+
+def test_the_prose_the_strip_did_not_take_comes_back_byte_for_byte():
+    r"""The splitter the walk uses has to be the one that rejoins without rewriting.
+
+    `split("\n")` and `"\n".join` are exact inverses. `splitlines` and `"\n".join` are not: eight
+    further characters begin a line for `splitlines`, so a tail carrying one of them comes back
+    with that character silently rewritten to a newline. `render_block` refuses those characters
+    in a RECORD, and the prose around the block is not a record - it is whatever the prompt
+    assembler wrote. A stripper that edited the text it kept would hand the specialist a prompt
+    nobody wrote, which is the fabrication this whole eval is pointed at.
+    """
+    tail = "Draft a short follow-up.\u2028Then stop."   # an escape: this file is ASCII
+    assert tail.splitlines() != [tail] and "\n" not in tail, "no break; this test is void"
+    assert strip_block(f"{HEAD}\n\n" + render_block(record()) + tail) == f"{HEAD}\n\n{tail}"
 
 def test_a_block_that_ends_the_prompt_is_still_stripped():
-    # The other side of that raise, and the reason it cannot simply refuse whenever no blank line
-    # follows: a block sitting at the very END of the prompt has no blank line after it either,
-    # and there taking everything from the header onward is exactly right.
+    # A block sitting at the very END of the prompt has no tail at all, and there the head is the
+    # whole answer. Same walk, no special case: it runs out of lines and there is nothing to keep.
     assert strip_block(f"{HEAD}\n\n" + render_block(record())) == f"{HEAD}\n\n"
+
+def test_trailing_whitespace_after_a_terminal_block_is_not_a_tail():
+    # Blank is `line.strip()`, not `line`. A prompt builder that joined its pieces with spaces
+    # leaves `"   "` where the terminal block's separator would be; testing the raw line would
+    # read that as the tail and hand back a prompt whose whole remaining instruction is padding.
+    assert strip_block(f"{HEAD}\n\n" + render_block(record()) + "   ") == f"{HEAD}\n\n"
+
+def test_only_the_blocks_own_separator_blank_line_is_consumed():
+    # AT MOST ONE, and the ordinary fixture cannot show it: the block renders one trailing newline
+    # and the assembler adds one, so the usual seam is a single blank line and a greedy consume
+    # looks identical there. A tail that deliberately opens on its own blank line is where the two
+    # part, and vertical space someone wrote into the prompt is not the stripper's to take.
+    tail = "\nDraft a short follow-up."
+    assert strip_block(f"{HEAD}\n\n" + render_block(record()) + f"\n{tail}") == f"{HEAD}\n\n{tail}"
+
+def test_a_blank_line_after_the_header_strips_the_header_alone_and_reddens_loudly():
+    """The first of the two ways a beautified rendering breaks the block's shape.
+
+    A blank line directly after the header stops the walk before it consumes anything, so the
+    header goes and every field line stays. That is the LOUD failure: no block question goes
+    unanswered, so the control itself reddens and says the block was not stripped. It must not
+    raise, because a raise here would be a stripper refusing to run instead of a control
+    reporting that it demonstrated nothing.
+    """
+    beautified = render_block(record()).replace(f"{BLOCK_HEADER}\n", f"{BLOCK_HEADER}\n\n", 1)
+    stripped = strip_block(f"{HEAD}\n\n" + beautified + f"\n{TAIL}")
+    assert BLOCK_HEADER not in stripped and TAIL in stripped
+    assert all(answer_from(stripped, f) is not None for f in BLOCK_ONLY_FIELDS)
+
+def test_a_blank_line_mid_block_truncates_there_and_leaves_the_fields_below():
+    """The second way, and the quiet one, which is why exact equality is the test that catches it.
+
+    A blank line further down stops the walk there, so the fields BELOW it survive into the
+    "stripped" context. One field going missing is enough to keep "at least one question fails"
+    green over a prompt that still holds two thirds of the block, and that is asserted here rather
+    than argued: the spec's sentence is not on its own a check of itself.
+    """
+    beautified = render_block(record()).replace("pass_reason:", "\npass_reason:", 1)
+    stripped = strip_block(f"{HEAD}\n\n" + beautified + f"\n{TAIL}")
+    assert answer_from(stripped, "stated_check_size") is None      # above the break, consumed
+    assert answer_from(stripped, "pass_reason") == "stage too early"    # below it, still standing
+    assert answer_from(stripped, "last_contact") is not None
+    assert [f for f in BLOCK_ONLY_FIELDS if answer_from(stripped, f) is None]
+    assert stripped != f"{HEAD}\n\n{TAIL}"
 
 def test_every_rendered_label_is_classified_block_only_or_deliberately_not():
     """Rename and removal are loud; ADDITION is the direction that drifts in silence.
