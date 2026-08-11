@@ -12,9 +12,15 @@ cwd, `fixtures/drafts` finds nothing whenever the script is run from anywhere bu
 root, and a live run that judged zero drafts would write an EMPTY canon over a good one. The guard
 below refuses that outright, before the agent is constructed and before a single token is spent.
 
-Credentials are the Anthropic SDK's, not the `claude` CLI's: `pydantic_ai.Agent("anthropic:...")`
-resolves ANTHROPIC_API_KEY, then ANTHROPIC_AUTH_TOKEN, then an `ant auth login` profile on disk. A
-machine whose Claude Code login works can still have nothing this script can use.
+Credentials are the Anthropic SDK's, not the `claude` CLI's, and this path's chain is SHORTER than
+the SDK's own. `pydantic_ai.Agent("anthropic:...")` builds an `AnthropicProvider`, which reads
+ANTHROPIC_API_KEY and RAISES when it is unset, before `AsyncAnthropic` is ever constructed
+(pydantic-ai 2.23.0, `providers/anthropic.py:154`). The SDK's further fallbacks, ANTHROPIC_AUTH_TOKEN
+and an `ant auth login` profile on disk, are therefore unreachable from here: this script takes
+ANTHROPIC_API_KEY or nothing. An earlier version of this docstring listed all three as a chain, from
+plausibility rather than from a run, which would send anyone holding a gateway token down a path
+that cannot work. A machine whose Claude Code login works can still have nothing this script can
+use.
 
 One hazard this path retires rather than inherits. `tools/battery.sh` settles, in its own comments,
 what to do about a captured fixture whose model-authored prose carries an em dash, and reserves a
