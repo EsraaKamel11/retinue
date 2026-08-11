@@ -469,7 +469,12 @@ def render_block(record: RelationshipRecord, *, budget: int = 1024) -> str:
             raise BlockFieldMissing(f"required field {name} is absent, null, or empty")
     lines = [BLOCK_HEADER,
              f"investor: {record.investor_id}",
-             f"stated_check_size: {record.stated_check_size if record.stated_check_size is not None else 'not stated'}",
+             # AMENDED 2026-08-11: `:f`, not implicit str(). Same defect as `as_policy_record` and
+             # the WORSE half, because a model reads this line: `Decimal("2.5E+5")` renders as
+             # `stated_check_size: 2.5E+5`, so the drafting agent is shown exponent notation for a
+             # figure the record holds as 250000. The two projections of one record must agree, and
+             # this is the one a human never sees before the model does.
+             f"stated_check_size: {format(record.stated_check_size, 'f') if record.stated_check_size is not None else 'not stated'}",
              f"pass_reason: {record.pass_reason or 'none recorded'}",
              f"last_contact: {record.last_contact.isoformat() if record.last_contact else 'never'}",
              f"jurisdiction: {record.jurisdiction or 'unknown'}",
@@ -3061,18 +3066,38 @@ def build_drafting_agent(model) -> Agent:
 
 Append to `src/retinue/ledger/projection.py`:
 
+**AMENDED 2026-08-11, from the Task 17 review, and the reason travels with the change.** This block
+first said money leaves as `str(Decimal)` and "the policy engine canonicalises on its side". The
+second half is true only for values the engine's regex accepts, and the sentence invited exactly the
+upstream normalisation that breaks it. Measured end to end by the reviewer: a `Touchpoint` accepts
+`payload={"amount": "2.5E+5"}` at the write barrier, `project_record` yields `Decimal("2.5E+5")`,
+`str()` emits `"2.5E+5"`, and `normalize_money` fullmatches a decimal-digits regex which that fails,
+so the field is DROPPED from `record_values` and a draft stating a figure the record actually holds
+collects `act:figure_not_in_record`. Note that `Decimal("250000").normalize()` IS `Decimal("2.5E+5")`,
+so the natural instinct to canonicalise the money upstream detonates this rather than fixing it.
+`f"{...:f}"` round trips every value the ledger can hold, checked down to `1E-8`.
+
+Add `Record` to the module-scope chaperone import rather than importing it inside the function:
+`projection.py` already imports from `chaperone.policy.act_classes` at module scope, and that module
+imports `Record` from `types` itself, so a deferred import avoids no cycle and saves nothing.
+
 ```python
-def as_policy_record(record: RelationshipRecord):
-    """The ledger record in the imported policy vocabulary. Money leaves as str-from-Decimal;
-    the policy engine canonicalises on its side."""
-    from chaperone.policy.types import Record
+def as_policy_record(record: RelationshipRecord) -> Record:
+    """The ledger record in the imported policy vocabulary. Money leaves in PLAIN notation, which
+    is NOT `str(Decimal)`: see the amendment note above, and the two mutation rows that hold it."""
     fields = {"investor_id": record.investor_id}
-    if record.stated_check_size is not None:
-        fields["stated_check_size"] = str(record.stated_check_size)
-    if record.pass_reason:
-        fields["pass_reason"] = record.pass_reason
+    if record.stated_check_size is not None:      # `is not None`, never falsiness: a zero check
+        fields["stated_check_size"] = f"{record.stated_check_size:f}"      # size is a FACT
+    if record.pass_reason:                        # falsiness, matching render_block: an empty
+        fields["pass_reason"] = record.pass_reason                         # reason is an ABSENCE
     return Record(fields=fields)
 ```
+
+Both guards need a mutation row. They are the silent place: swapping either one produces a policy
+record that disagrees with the block rendered from the SAME record, and nothing else in the suite
+notices. `if record.stated_check_size:` drops a zero check size from the policy record while the
+block still renders `stated_check_size: 0`, so a draft correctly saying `$0` collects a
+`FIGURE_NOT_IN_RECORD` finding.
 
 Modify `src/retinue/orchestration/topology.py`: add
 `from retinue.specialists.drafting import DRAFTING_PROMPT` and set the drafting
