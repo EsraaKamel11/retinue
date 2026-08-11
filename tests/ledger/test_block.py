@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import pytest
 from retinue.ledger.projection import RelationshipRecord
-from retinue.ledger.block import (BLOCK_HEADER, BlockBudgetExceeded, BlockFieldMissing,
-                                  BlockValueUnrenderable, render_block)
+from retinue.ledger.block import (BLOCK_HEADER, BLOCK_LABELS, BlockBudgetExceeded,
+                                  BlockFieldMissing, BlockValueUnrenderable, render_block)
 
 # Every break `str.splitlines` splits on, which is the alphabet that matters rather than the two
 # a developer thinks of first: `retinue.evals.control.answer_from` reads block lines with
@@ -69,6 +69,22 @@ def test_the_absent_rendering_is_pinned_too():
     """
     assert render_block(rec(stated_check_size=None, pass_reason="", last_contact=None,
                             jurisdiction=None, domain=None)) == _PINNED_ABSENT
+
+def test_the_label_roster_is_the_rendering_itself_not_a_copy_of_it():
+    """One roster, or the drift just closed on the consumer side moves one file over.
+
+    The control eval's stripper walks the block by recognising its LABELS, so a label added to the
+    rendering and not to the roster makes the stripper read a real block line as the tail that
+    FOLLOWS the block, and the strip then stops one line early with the rest of the block still
+    standing. A second hardcoded tuple sitting beside the rendering is precisely that drift, which
+    is why the rendering is built FROM the roster's keys.
+
+    Satisfied by construction while that holds, and that is what it is for rather than a weakness
+    in it: it is the test that refuses the copy, and its mutation row is a hardcoded roster that
+    has fallen one label behind the rendering.
+    """
+    rendered = tuple(line.split(": ", 1)[0] for line in render_block(rec()).splitlines()[1:])
+    assert rendered == BLOCK_LABELS
 
 def test_missing_required_field_raises_naming_it():
     for hole in (None, ""):                       # absent-as-None and empty-string both refuse

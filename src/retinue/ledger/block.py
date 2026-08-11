@@ -5,6 +5,7 @@ most-trusted component, and an over-budget block silently truncated is the same 
 is a contract: the control eval's stripper matches it byte-for-byte (spec 7.1).
 """
 from __future__ import annotations
+from collections.abc import Callable
 from dataclasses import fields
 from retinue.ledger.projection import RelationshipRecord
 
@@ -15,6 +16,29 @@ class BlockBudgetExceeded(Exception): ...
 class BlockValueUnrenderable(Exception): ...
 
 _REQUIRED = ("investor_id",)          # identity is required; facts may honestly be absent
+
+#: The block's fields, in the order they render: label -> how that label's value is written.
+#: Absence is always STATED, never left blank and never invented, which is why every entry has a
+#: fallback and why `stated_check_size` tests `is not None` where the string fields use `or` - a
+#: zero check size is a fact, not an absence.
+#:
+#: The keys ARE the roster. `BLOCK_LABELS` is derived from them, and the control eval's stripper
+#: walks the block by recognising those labels, so a label is written in exactly ONE place. A
+#: second hardcoded tuple beside this mapping would be the same silent drift the control's roster
+#: test closed, moved one file over: a label added here and not there makes the stripper read a
+#: real block line as the tail that follows the block, and the strip then stops one line early
+#: with the rest of the block still standing in the "stripped" context.
+_FIELDS: dict[str, Callable[[RelationshipRecord], str]] = {
+    "investor": lambda r: f"{r.investor_id}",
+    "stated_check_size": lambda r: f"{r.stated_check_size}" if r.stated_check_size is not None else "not stated",
+    "pass_reason": lambda r: r.pass_reason or "none recorded",
+    "last_contact": lambda r: r.last_contact.isoformat() if r.last_contact else "never",
+    "jurisdiction": lambda r: r.jurisdiction or "unknown",
+    "domain": lambda r: r.domain or "unknown",
+}
+
+#: The labels the block renders, in order. Derived, so it cannot fall behind the rendering.
+BLOCK_LABELS = tuple(_FIELDS)
 
 def render_block(record: RelationshipRecord, *, budget: int = 1024) -> str:
     for name in _REQUIRED:
@@ -49,13 +73,7 @@ def render_block(record: RelationshipRecord, *, budget: int = 1024) -> str:
                 f"{name} contains a line break, so rendering it would forge a block line or an "
                 "early block boundary; the record is refused rather than rewritten"
             )
-    lines = [BLOCK_HEADER,
-             f"investor: {record.investor_id}",
-             f"stated_check_size: {record.stated_check_size if record.stated_check_size is not None else 'not stated'}",
-             f"pass_reason: {record.pass_reason or 'none recorded'}",
-             f"last_contact: {record.last_contact.isoformat() if record.last_contact else 'never'}",
-             f"jurisdiction: {record.jurisdiction or 'unknown'}",
-             f"domain: {record.domain or 'unknown'}"]
+    lines = [BLOCK_HEADER] + [f"{label}: {write(record)}" for label, write in _FIELDS.items()]
     out = "\n".join(lines) + "\n"
     if len(out.encode()) > budget:
         raise BlockBudgetExceeded(f"{len(out.encode())} bytes exceeds the {budget}-byte budget")
