@@ -175,6 +175,13 @@ def test_ranked_ids_carries_the_ranked_bucket_and_not_the_blocked_one():
     assertion below would still pass and the guard would be green and vacuous. Stating the premise
     as its own assertion means the day it stops holding is the day this reddens, rather than the day
     it silently stops measuring.
+
+    The counterfactual that shows this line is load-bearing is a row routed INELIGIBLE instead of to
+    needs-verification: `jurisdiction="FR"` against a mandate consenting to US alone. The bucket
+    empties, `ranked_ids` still returns exactly `["inv-ok"]`, so the assertion below stays green
+    while this one reddens. Deleting the hole does NOT show it, and this guard's first recorded
+    counterfactual wrongly said it did: with no override the row is fully ELIGIBLE, joins the RANKED
+    bucket, and both assertions then fail together, which discriminates nothing.
     """
     mandate = Mandate(check_size_min="100000", stage="seed", sector="devtools",
                       geography="eu-west", consented_jurisdictions=frozenset({"US"}))
