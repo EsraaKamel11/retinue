@@ -9,22 +9,21 @@
   ]
  },
  "payload": {
-  "session_id": "e1cc3c7b-fd17-4ff5-92c7-835e3d0464b8",
-  "transcript_path": "C:\\Users\\<user>\\.claude\\projects\\D--retinue\\e1cc3c7b-fd17-4ff5-92c7-835e3d0464b8.jsonl",
+  "session_id": "c5915401-4d02-48f3-9f4a-73c3426f65ef",
+  "transcript_path": "C:\\Users\\<user>\\.claude\\projects\\D--retinue\\c5915401-4d02-48f3-9f4a-73c3426f65ef.jsonl",
   "cwd": "D:\\retinue",
-  "prompt_id": "5e53fd6a-7809-45a2-9bc0-2f985837f605",
+  "prompt_id": "d557ede6-d5ff-4a38-8fea-01237bcb8e4a",
   "permission_mode": "default",
+  "agent_id": "a06054308543acaaa",
+  "agent_type": "research",
   "effort": {
    "level": "xhigh"
   },
   "hook_event_name": "PreToolUse",
-  "tool_name": "Agent",
+  "tool_name": "Read",
   "tool_input": {
-   "description": "Summarise doc-1.md",
-   "prompt": "Read the fixture document at `fixtures/docs/doc-1.md` (Glob returned the path as `fixtures\\docs\\doc-1.md`) and produce a summary of that document's contents.\n\nRequirements:\n- Scope: ONLY this one file. Do not research or read any other document, and do not draw on outside knowledge.\n- Cite the document for each substantive claim, per your cite-or-refuse contract.\n- Cover: what kind of document it is, who/what it concerns, and its key facts, figures, dates, and stated conclusions.\n- If the document falls outside what you're permitted to summarise, or if it lacks the grounding you need to cite, say so explicitly and explain why rather than guessing.",
-   "subagent_type": "research",
-   "run_in_background": false
+   "file_path": "D:\\retinue\\fixtures\\docs\\doc-1.md"
   },
-  "tool_use_id": "toolu_01WWw91RWaVXpegeZcfXPkGP"
+  "tool_use_id": "toolu_0135jPGGD7kKipYfy185oFdu"
  }
 }

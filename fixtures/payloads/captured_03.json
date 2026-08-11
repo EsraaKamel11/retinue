@@ -20,10 +20,10 @@
    "level": "xhigh"
   },
   "hook_event_name": "PreToolUse",
-  "tool_name": "Glob",
+  "tool_name": "Read",
   "tool_input": {
-   "pattern": "fixtures/**/*"
+   "file_path": "D:\\retinue\\fixtures\\docs\\doc-2.md"
   },
-  "tool_use_id": "toolu_0126KZKWUwaxLntbFqzu97Cc"
+  "tool_use_id": "toolu_01FN6Hwo7eh4mBuvPzb352Ff"
  }
 }

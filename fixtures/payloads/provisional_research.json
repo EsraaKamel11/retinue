@@ -1,3 +1,0 @@
-{"meta": {"provisional": true, "note": "hand-authored; replaced by the P1 capture smoke"},
- "payload": {"tool_name": "Read", "agent_type": "research",
-             "tool_input": {"file_path": "fixtures/docs/doc-1.md"}}}

@@ -22,8 +22,8 @@
   "hook_event_name": "PreToolUse",
   "tool_name": "Glob",
   "tool_input": {
-   "pattern": "fixtures/**/*"
+   "pattern": "**/*fixture*meta*"
   },
-  "tool_use_id": "toolu_0126KZKWUwaxLntbFqzu97Cc"
+  "tool_use_id": "toolu_01F5YhM15fwdRYeWc5fm8YJD"
  }
 }
