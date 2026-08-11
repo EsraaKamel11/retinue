@@ -2776,8 +2776,21 @@ if __name__ == "__main__":
 ```
 
 - [ ] **Step 4: Run to verify pass** - Expected: 4 passed, no network touched.
-- [ ] **Step 5: Inertness proof, then commit** - make `calibration_agreement` return
-  `agree / len(verdicts)` (denominator drift): the calibration test goes RED; restore.
+- [ ] **Step 5: Inertness proof, then commit.** The denominator-drift mutation
+  (`agree / len(verdicts)` instead of `agree / len(confident)`) is **vacuous against the frozen
+  set**: every frozen verdict clears the 0.7 floor, so both denominators are the same number and
+  the mutation is indistinguishable. Verified - correct and drifted both return 1.0.
+
+  Prove it against a hand-built probe instead, holding at least one BELOW-floor verdict that
+  disagrees with ground truth. There the two definitions genuinely part: the correct one ignores
+  the unconfident verdict, the drifted one counts it in the denominator. Build the probe
+  independently of the frozen fixture, so a control is not derived from the thing it guards.
+
+  Note while you are here that `calibration_agreement == 1.0` over the frozen set is true **by
+  construction**: the drafts' ground truth and the verdicts' `violates` are both hand-authored by
+  one author in one sitting, so the test measures that author's consistency rather than a judge's
+  calibration. No code mutation can redden it; only a fixture edit can. Say so in the fixture's
+  own note rather than letting the number imply a measurement.
 
 ```bash
 git add src/retinue/evals/frozen.py scripts/judge_capture.py fixtures/verdicts fixtures/drafts tests/evals/test_frozen_judge.py
