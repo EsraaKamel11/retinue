@@ -70,14 +70,29 @@ def test_the_width_bound_refuses_without_materialising_the_string():
     mood can move is not a measurement, and it would have recorded this row as passing on a quiet
     run.
 
-    Peak allocation separates the two arms by a factor no machine state can close, and both arms
-    were measured rather than assumed, each against the call this test actually makes. The whole
-    validated construction peaks at 3,273 bytes on the arithmetic path (the bare `plain_width` call
-    is 807 of those); formatting the same value peaks at 2,000,000,259. The bound below sits about
-    300x above the real path and 2000x below the one it forbids.
+    Peak allocation separates the two arms by a factor no machine state can close. The arithmetic
+    path costs a few KILOBYTES; formatting the same value peaks at 2,000,000,259 bytes, which is
+    two GIGABYTES and was measured directly. The bound below sits far above the first and three
+    orders of magnitude below the second.
+
+    Stated as an order of magnitude on purpose, and this docstring carried four-significant-figure
+    numbers for the real path until a review could not reproduce them. They were not wrong so much
+    as unrepeatable: the construction's peak moves with what the interpreter has already allocated,
+    measuring between roughly 2.9 KB in a bare script and 5.1 KB under pytest, so no single figure
+    is a measurement of it. The byte boundaries in `test_block.py` were promoted from prose into
+    assertions when they went stale; this number cannot be, because it legitimately moves, and a
+    figure that cannot be asserted should not be written as though it had been. The margin holds
+    at every one of those readings: 1 MB against 5.1 KB is still nearly 200x.
 
     (A formatting implementation may raise MemoryError on a smaller machine instead of allocating.
     That is red here too, which is the point.)
+
+    KNOWN FRAGILITY, recorded rather than defended against: this assumes it is the only user of
+    `tracemalloc`. Calling `start()` while tracing is already on does NOT reset the peak, and the
+    `stop()` below would switch tracing off under whoever else had it on. Nothing else in the repo
+    touches it and no ini or environment setting enables it, so it holds today; a second consumer,
+    or `PYTHONTRACEMALLOC` set in some environment, would redden this for a reason having nothing
+    to do with the guard. A test that fails for the wrong reason is worth naming before it does.
     """
     tracemalloc.start()
     try:

@@ -97,9 +97,14 @@ class Touchpoint(BaseModel):
             if not amount.is_finite():
                 raise ValueError(f"amount {raw!r} is not a finite decimal")
             # STRUCTURAL, not a business limit on cheque sizes: a value whose plain rendering alone
-            # does not fit the block's default budget leaves no room for the header, the other five
-            # fields, or its own label, so it can never be rendered at any budget the block ships
-            # with. Refusing it once here beats raising on every render forever.
+            # does not fit the block's DEFAULT budget leaves no room for the header, the other five
+            # fields, or its own label, so no caller taking that default can ever render it.
+            # Refusing it once here beats raising on every render forever.
+            #
+            # Scoped to the default deliberately. `budget` is a caller parameter, so a caller
+            # passing a larger one could hold a value this refuses. That is the fail-closed
+            # direction and the alternative is worse: reading the caller's budget at WRITE time
+            # would make what the ledger accepts depend on who renders it later.
             width = plain_width(amount)
             if width > BLOCK_DEFAULT_BUDGET:
                 raise ValueError(
