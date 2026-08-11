@@ -1,0 +1,8 @@
+{"meta": {"provisional": true, "note": "scripted checker verdicts for the default lane"},
+ "verdicts": [
+  {"body": "Following up on our conversation.", "violates": false, "confidence": 0.9},
+  {"body": "Honestly, this company is a great investment and you should take the allocation.",
+   "violates": true, "violation_class": "content:advises_on_merits", "confidence": 0.85,
+   "span": "a great investment"},
+  {"body": "I genuinely cannot tell about this one.", "flag": "ambiguous solicitation framing"}
+ ]}
