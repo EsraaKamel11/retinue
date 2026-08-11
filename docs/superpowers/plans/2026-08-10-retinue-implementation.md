@@ -224,7 +224,7 @@ test must go RED. Restore, re-run green. Commit with the red run named:
 
 ```bash
 git add src/retinue/ledger tests/ledger
-git commit -m "feat: touchpoint models and the in-memory store contract (inertness: unknown-kind test shown red with the validator stubbed, then restored)"
+git commit -m "feat: touchpoint models and the in-memory store contract"
 ```
 
 ---
@@ -390,7 +390,7 @@ never the design.)
 
 ```bash
 git add src/retinue/ledger/projection.py tests/ledger/test_projection.py
-git commit -m "feat: record-as-projection and the six-field ActContext feed (inertness: unavailable-as-empty stub shown red)"
+git commit -m "feat: record-as-projection and the six-field ActContext feed"
 ```
 
 ---
@@ -487,7 +487,7 @@ Stub the budget check (`if False:`), watch the budget test go RED; restore, gree
 
 ```bash
 git add src/retinue/ledger/block.py tests/ledger/test_block.py
-git commit -m "feat: the rendered block with budget and completeness raises (inertness: budget test shown red with the check stubbed)"
+git commit -m "feat: the rendered block with budget and completeness raises"
 ```
 
 ---
@@ -817,7 +817,7 @@ both inherently - `PRIMARY KEY` is one namespace, and a JSONB round-trip returns
 
 ```bash
 git add schema.sql src/retinue/ledger/postgres.py tests/ledger
-git commit -m "feat: postgres adapter, append-only trigger, named-index plan test, and the required-lane negative control (inertness: trigger dropped, shown red)"
+git commit -m "feat: postgres adapter, append-only trigger, named-index plan test, a..."
 ```
 
 ---
@@ -1019,7 +1019,7 @@ RESEARCH_PROMPT = (
 
 ```bash
 git add src/retinue/specialists tests/specialists
-git commit -m "feat: research contract with containment resolution and the retryable split (inertness: missing-source shown red with resolution stubbed)"
+git commit -m "feat: research contract with containment resolution and the retryable..."
 ```
 
 ---
@@ -1119,7 +1119,7 @@ def build_research_agent(model, *, doc_ids: frozenset[str]) -> Agent:
 
 ```bash
 git add src/retinue/specialists/research.py tests/specialists/test_research_agent.py
-git commit -m "feat: the research agent under FunctionModel (inertness: escalation-as-retry shown red)"
+git commit -m "feat: the research agent under FunctionModel"
 ```
 
 ---
@@ -1268,7 +1268,7 @@ installed 0.2.130 names any mismatch - fix the call, never the table's content.)
 
 ```bash
 git add src/retinue/orchestration tests/orchestration
-git commit -m "feat: topology as data - foreground everywhere, spawn-only orchestrator, tier vocabulary exact (inertness: background test shown red)"
+git commit -m "feat: topology as data"
 ```
 
 ---
@@ -1457,7 +1457,7 @@ async def pre_tool_use(input_data: dict, tool_use_id, context) -> dict:
 
 ```bash
 git add src/retinue/boundary fixtures/payloads tests/boundary
-git commit -m "feat: the one hook - total decision table, ask on outward sends (inertness: unknown-agent allow shown red)"
+git commit -m "feat: the one hook - total decision table, ask on outward sends"
 ```
 
 ---
@@ -1606,7 +1606,7 @@ if __name__ == "__main__":
 
 ```bash
 git add tools/fleet_audit.py tests/test_fleet_audit.py
-git commit -m "feat: AST import audit with planted-violation negative controls per named rule"
+git commit -m "feat: AST import audit with planted-violation negative controls per n..."
 ```
 
 ---
@@ -1731,7 +1731,7 @@ names, invented figures; no real firm's published ranges).
 
 ```bash
 git add fixtures src/retinue/synth scripts tests/synth tests/test_fixture_meta.py
-git commit -m "feat: synthetic fixtures, seeded roster generator, and the RETINUE_LIVE-gated capture smoke"
+git commit -m "feat: synthetic fixtures, seeded roster generator, and the RETINUE_LI..."
 ```
 
 ---
@@ -2303,7 +2303,7 @@ def last_touch_attribution(store: TouchpointStore, outcome: OutcomeRecord) -> To
 
 ```bash
 git add src/retinue/ledger/outcomes.py schema.sql tests/ledger/test_outcomes.py
-git commit -m "feat: OutcomeRecord with the parameterized signal toggle and last-touch attribution (inertness: validator stubbed, shown red)"
+git commit -m "feat: OutcomeRecord with the parameterized signal toggle and last-tou..."
 ```
 
 ---
@@ -2444,7 +2444,7 @@ def shortlist(rows: Sequence[dict], mandate: Mandate, *,
 
 ```bash
 git add src/retinue/matching tests/matching
-git commit -m "feat: matching integration - ledger-fed candidates through the imported staging (membership test red before implementation)"
+git commit -m "feat: matching integration"
 ```
 
 ---
@@ -2598,7 +2598,7 @@ subscription, subclass without generics - the duck-typed `Ctx` tests pin the mat
 
 ```bash
 git add src/retinue/evals fixtures/gold_rankings.json tests/evals
-git commit -m "feat: hand-rolled ranking evaluators - floats, explicit names, reciprocal-rank MRR (binary-MRR trap pinned red first)"
+git commit -m "feat: hand-rolled ranking evaluators"
 ```
 
 ---
@@ -2764,7 +2764,7 @@ if __name__ == "__main__":
 
 ```bash
 git add src/retinue/evals/frozen.py scripts/judge_capture.py fixtures/verdicts fixtures/drafts tests/evals/test_frozen_judge.py
-git commit -m "feat: frozen-judge replay - calibration and discrimination separate (inertness: denominator drift shown red)"
+git commit -m "feat: frozen-judge replay - calibration and discrimination separate"
 ```
 
 ---
@@ -2911,7 +2911,7 @@ def answer_from(prompt: str, field: str) -> str | None:
 
 ```bash
 git add src/retinue/evals/control.py tests/evals/test_block_control.py
-git commit -m "feat: block-stripped control bound to the header contract (inertness: no-op stripper shown red)"
+git commit -m "feat: block-stripped control bound to the header contract"
 ```
 
 ---
@@ -3038,7 +3038,7 @@ provisional comment for drafting; conversation's stays until Task 22).
 
 ```bash
 git add src/retinue/specialists/drafting.py src/retinue/ledger/projection.py src/retinue/orchestration/topology.py tests/specialists/test_drafting.py
-git commit -m "feat: drafting specialist - Draft from the identity record, parity via the shared prompt object (inertness: identity raise removed, shown red)"
+git commit -m "feat: drafting specialist"
 ```
 
 ---
@@ -3176,7 +3176,7 @@ def postgres_sink(dsn: str) -> Sink:
 
 ```bash
 git add src/retinue/boundary/review_queue.py schema.sql tests/boundary/test_review_queue.py
-git commit -m "feat: durable review queue - sink-first ordering (inertness: swapped halves shown red)"
+git commit -m "feat: durable review queue - sink-first ordering"
 ```
 
 ---
@@ -3307,7 +3307,7 @@ def register_of(result: CheckerResult) -> str:
 
 ```bash
 git add src/retinue/boundary/checker_lane.py fixtures/verdicts/checker_scripted.json tests/boundary/test_checker_lane.py
-git commit -m "feat: checker lane - scripted frozen transport, ordering guarantee witnessed (inertness: invented-clean shown red)"
+git commit -m "feat: checker lane"
 ```
 
 ---
@@ -3524,7 +3524,7 @@ def attempt_send(*, key: str, draft: Draft, record: Record, context: ActContext 
 
 ```bash
 git add src/retinue/boundary/send_tool.py tests/boundary/test_send_tool.py
-git commit -m "feat: the chokepoint - terminal guard first, boundary pre-check, tri-state sent touchpoint (inertness: guard order swapped, shown red)"
+git commit -m "feat: the chokepoint"
 ```
 
 ---
@@ -3640,7 +3640,7 @@ def routes_to_human(p: Preflight) -> bool:
 
 ```bash
 git add src/retinue/boundary/preflight.py tests/boundary/test_preflight.py
-git commit -m "feat: pre-flight review surface - first real caller of the imported full lane, two-signal routing"
+git commit -m "feat: pre-flight review surface"
 ```
 
 ---
@@ -3761,7 +3761,7 @@ audit stays green.)
 
 ```bash
 git add src/retinue/specialists/conversation.py src/retinue/orchestration/topology.py tests/specialists/test_conversation.py
-git commit -m "feat: conversation specialist - ConversationTurn composes Draft (inertness: copied-string parity shown red)"
+git commit -m "feat: conversation specialist - ConversationTurn composes Draft"
 ```
 
 ---
@@ -3884,7 +3884,7 @@ the witness, and any mismatch is fixed in the SCRIPT, never by weakening the off
 
 ```bash
 git add scripts/demo.py tests/boundary/test_ask_replay.py
-git commit -m "feat: the P4 demo - offer asserted before any gating claim, ask fixture capture + skip-gated replay"
+git commit -m "feat: the P4 demo"
 ```
 
 ---
@@ -3929,7 +3929,7 @@ git commit -m "feat: the P4 demo - offer asserted before any gating claim, ask f
 
 ```bash
 git add README.md
-git commit -m "docs: README - lanes, provenance statement, Designed-vs-Built flips through P4"
+git commit -m "docs: README"
 ```
 
 
