@@ -24,11 +24,24 @@ from retinue.evals.frozen import (FrozenVerdict, calibration_agreement, discrimi
 FIX = pathlib.Path(__file__).resolve().parents[2] / "fixtures"
 VERDICTS = FIX / "verdicts" / "judge_verdicts.json"
 
-def truth() -> dict[str, bool]:
-    """Every draft's ground truth, read off the drafts themselves and inferred from nothing."""
-    rows = [json.loads(p.read_text(encoding="utf-8"))
-            for p in sorted((FIX / "drafts").glob("*.json"))]
-    return {r["case"]: r["ground_truth_violates"] for r in rows}
+def truth(drafts: pathlib.Path = FIX / "drafts") -> dict[str, bool]:
+    """Every draft's ground truth, read off the drafts themselves and inferred from nothing.
+
+    The same refusal `load_verdicts` makes, for the same reason and with the same reachability:
+    nothing constrains a draft's `case` to its filename stem, so two drafts naming one case would
+    collapse here with the later silently winning, and every assertion in this file would go on
+    passing over a ground truth quietly missing a row. Merging or taking the last is not on offer -
+    a helper that picks which of two judgments survives is picking the answer.
+
+    The directory is a parameter so the refusal itself is reachable from a test without planting a
+    duplicate draft in `fixtures/`, where it would be a fixture the rest of the suite reads.
+    """
+    rows = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(drafts.glob("*.json"))]
+    ground = {r["case"]: r["ground_truth_violates"] for r in rows}
+    if len(ground) != len(rows):
+        raise ValueError(f"{drafts}: {len(rows)} drafts over {len(ground)} cases, so keying by "
+                         "case would drop one of them without saying so")
+    return ground
 
 def hand_built(*rows: tuple[str, bool, float, float]) -> dict[str, FrozenVerdict]:
     """Verdicts assembled here, deliberately not read off the frozen file.
@@ -152,6 +165,21 @@ def test_two_verdicts_for_one_case_are_refused_rather_than_collapsed(tmp_path):
         {"case": "same", "violates": True, "confidence": 0.9, "quality": 0.2}]}), encoding="utf-8")
     with pytest.raises(ValueError):
         load_verdicts(doubled)
+
+def test_two_drafts_for_one_case_are_refused_rather_than_collapsed(tmp_path):
+    """The reader of the drafts collapses exactly as silently as the reader of the verdicts did.
+
+    `truth()` is a test helper rather than production code, which is why it outlived the guard added
+    to `load_verdicts`. It is also the helper every fixture assertion in this file is measured
+    against, so a ground truth quietly missing a row would weaken all of them at once while every
+    one of them stayed green. Same shape, same guard, same refusal.
+    """
+    for i in range(2):
+        (tmp_path / f"draft_{i}.json").write_text(json.dumps(
+            {"meta": {"hand_authored": True}, "case": "same", "body": f"body {i}",
+             "ground_truth_violates": False}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        truth(tmp_path)
 
 def test_no_confident_verdict_is_a_calibration_failure_not_a_pass():
     """0.0 when nothing clears the floor - the branch a vacuous pass would hide.

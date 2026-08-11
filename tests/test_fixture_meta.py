@@ -95,7 +95,7 @@ def _provenance_findings(root: Path) -> list[str]:
 #: asserted and unenforced for the rest - which is the shape of gap this file exists to close.
 _GATED_SCRIPTS = ("capture_smoke", "judge_capture")
 
-def _smoke_import_findings(root: Path) -> list[str]:
+def _gated_script_import_findings(root: Path) -> list[str]:
     """An import STATEMENT naming a gated script, told apart from a mention of one.
 
     The skip reason below names `scripts/capture_smoke.py` in a string, and a grep cannot tell
@@ -197,15 +197,21 @@ def test_a_lone_hand_authored_marking_is_the_accepted_third_provenance(tmp_path)
     (tmp_path / "hand.json").write_text('{"meta": {"hand_authored": true}}', encoding="utf-8")
     assert _provenance_findings(tmp_path) == []
 
-def test_no_test_module_imports_the_capture_smoke():
-    assert _smoke_import_findings(TESTS) == []
+def test_no_test_module_imports_a_gated_script():
+    """Named for the whole tuple, because it now guards the whole tuple.
 
-def test_the_smoke_import_rule_tells_an_import_from_a_mention(tmp_path):
+    It read `..._the_capture_smoke` while checking every entry in `_GATED_SCRIPTS`: a name promising
+    something narrower than its body holds, which is the same defect one file over as the docstring
+    absolute this round's review was convened to remove.
+    """
+    assert _gated_script_import_findings(TESTS) == []
+
+def test_the_gated_script_rule_tells_an_import_from_a_mention(tmp_path):
     (tmp_path / "mentions.py").write_text('SMOKE = "scripts/capture_smoke.py"\n', encoding="utf-8")
-    assert _smoke_import_findings(tmp_path) == []      # a grep flags this; the parse must not
+    assert _gated_script_import_findings(tmp_path) == []      # a grep flags this; the parse must not
     (tmp_path / "imports.py").write_text("from scripts.capture_smoke import main\n",
                                          encoding="utf-8")
-    assert any("imports.py" in f for f in _smoke_import_findings(tmp_path))
+    assert any("imports.py" in f for f in _gated_script_import_findings(tmp_path))
 
 def test_the_gated_script_rule_fires_on_every_script_it_names(tmp_path):
     """One specimen per branch, which is the standard `tools/battery.sh` holds itself to.
@@ -219,7 +225,7 @@ def test_the_gated_script_rule_fires_on_every_script_it_names(tmp_path):
     for i, script in enumerate(_GATED_SCRIPTS):
         (tmp_path / f"imports_{i}.py").write_text(f"from scripts.{script} import main\n",
                                                   encoding="utf-8")
-    found = _smoke_import_findings(tmp_path)
+    found = _gated_script_import_findings(tmp_path)
     assert len(found) == len(_GATED_SCRIPTS), found
     for script in _GATED_SCRIPTS:
         assert any(script in f for f in found), f"rule never fired for {script}"
