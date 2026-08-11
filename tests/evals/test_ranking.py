@@ -15,6 +15,7 @@ from pydantic_evals.evaluators import EvaluatorContext
 from retinue.evals.ranking import MRR, HitAtN, ranked_ids
 from retinue.ledger.models import StoreUnavailable, Touchpoint
 from retinue.ledger.store import InMemoryStore
+from retinue.matching.integrate import shortlist
 from retinue.synth.rosters import generate_rosters
 
 GOLD = json.loads((pathlib.Path(__file__).resolve().parents[2] / "fixtures"
@@ -92,16 +93,21 @@ def test_each_gold_case_names_a_cell_the_ranking_can_actually_reorder():
 
     Membership is compared as a SET: with the embedder null and the ledger empty every eligible
     candidate scores exactly 0.0, so the order here is Python's stable sort preserving roster order
-    rather than anything the ranker decided, and freezing it as order would pin the wrong fact. The
-    one ordering claim made is the last line, which is about the judged top and is the reason the
-    two cases below are not self-satisfying.
+    rather than anything the ranker decided, and freezing it as order would pin the wrong fact.
+
+    The one ordering claim is the last line, and it reads `cell[-1] ==` rather than `cell[0] !=`.
+    Both cases' judgments say in prose that the gold is LAST of its cell, and not-first is a weaker
+    claim that a middle member also satisfies: park a three-member cell's gold in the middle and the
+    warm case below still passes, but on a rank-2 recovery rather than the rank-3 one the fixture
+    claims, and the cold-start case's bound loosens from a third to a half. Asserted as the claim
+    the fixture already owns, so the prose and the test cannot drift apart.
     """
     for case in GOLD["cases"]:
         rows, mandate = case_inputs(case)
         cell = ranked_ids(rows, mandate, lambda c: 0.0, InMemoryStore(), NOW)
         assert set(cell) == set(case["eligible_cell"]), case["name"]
         assert len(cell) >= 2, f"{case['name']}: a one-candidate shortlist judges nothing"
-        assert cell[0] != case["expected_top"], f"{case['name']}: the gold starts at the top"
+        assert cell[-1] == case["expected_top"], f"{case['name']}: the gold is not last in its cell"
 
 def test_the_metric_notices_a_null_embedder_on_the_cold_start_case():
     """The cold-start gold expects similarity to carry a party with no history; an embedder that
@@ -112,6 +118,13 @@ def test_the_metric_notices_a_null_embedder_on_the_cold_start_case():
     their membership of it, which is the eligibility doctrine one layer down. The upper bound is
     what a binary MRR fails: under "did it appear at all" both runs return 1.0, `good > bad` reads
     1.0 > 1.0, and this is the case that catches it on real data.
+
+    hit@N gets its one run over real rows here, at N=2, which is the only window this cell can say
+    anything with: hit@3 over three candidates is 1.0 for any gold and any ranker, and hit@1 would
+    restate the two MRR lines above. It is also SHARPER than the bound above rather than a duplicate
+    of it - `0.0 < bad < 1.0` admits rank 2 or rank 3, while `hit_at_2 == 0.0` pins rank 3 exactly,
+    which is where the fixture's judgment puts this gold. Float-ness is not re-pinned here; the
+    dedicated hit@N test owns that claim.
     """
     case = gold_case("cold-start-carried-by-similarity")
     rows, mandate = case_inputs(case)
@@ -124,6 +137,8 @@ def test_the_metric_notices_a_null_embedder_on_the_cold_start_case():
     assert good == 1.0                # similarity alone puts the cold-start party at the front
     assert 0.0 < bad < 1.0            # and withdrawing it costs them order, not membership
     assert good > bad                 # the metric notices when similarity stops carrying them
+    assert HitAtN(2).evaluate(Ctx(favouring, top)) == {"hit_at_2": 1.0}
+    assert HitAtN(2).evaluate(Ctx(null, top)) == {"hit_at_2": 0.0}     # rank 3 exactly, not 2
 
 def test_warm_relationship_wins_under_a_uniform_embedder():
     """The other gold's consumer: with the embedder flat, relationship state must decide.
@@ -151,15 +166,26 @@ def test_ranked_ids_carries_the_ranked_bucket_and_not_the_blocked_one():
     """A needs-verification candidate is blocked and routed, never ranked low, so no metric may see
     them. Every row in both gold cases carries every axis, so that bucket is empty throughout this
     file: append it to the first and each test above stays green while the metric quietly begins
-    scoring parties the eligibility layer refused to surface. This is the row that would notice."""
+    scoring parties the eligibility layer refused to surface. This is the row that would notice.
+
+    The blocked bucket is asserted NON-EMPTY first, and that line is the difference between a test
+    and a test-shaped thing. It rests on a premise this repository does not own - that the imported
+    `classify` routes a missing `stage` to needs-verification rather than to ineligible - and if
+    that ever changed, the bucket would be empty, `ranked_ids` would have nothing to drop, the
+    assertion below would still pass and the guard would be green and vacuous. Stating the premise
+    as its own assertion means the day it stops holding is the day this reddens, rather than the day
+    it silently stops measuring.
+    """
     mandate = Mandate(check_size_min="100000", stage="seed", sector="devtools",
                       geography="eu-west", consented_jurisdictions=frozenset({"US"}))
     def row(inv, **overrides):
         return {"investor_id": inv, "jurisdiction": "US", "check_ceiling": 4_000_000,
                 "stage": "seed", "sector": "devtools", "geography": "eu-west"} | overrides
-    ids = ranked_ids([row("inv-ok"), row("inv-hole", stage=None)], mandate,
-                     lambda c: 0.5, InMemoryStore(), NOW)
-    assert ids == ["inv-ok"]
+    rows = [row("inv-ok"), row("inv-hole", stage=None)]
+    _ranked, blocked = shortlist(rows, mandate, embed_score=lambda c: 0.5,
+                                 store=InMemoryStore(), now=NOW)
+    assert [c.id for c in blocked] == ["inv-hole"]        # the premise: there IS something to drop
+    assert ranked_ids(rows, mandate, lambda c: 0.5, InMemoryStore(), NOW) == ["inv-ok"]
 
 def test_ranked_ids_lets_an_unreadable_ledger_raise():
     """Matching never invents, and a metric laid over it inherits that. A `ranked_ids` that caught
