@@ -3988,6 +3988,44 @@ git commit -m "feat: the P4 demo"
   both halves: hand-authored, so every number is a protocol demonstration, not a measured claim
   about model behaviour).
 
+  **BOOKED 2026-08-11: an uncommitted README edit was found in the working tree during Task 18's
+  review and reverted, preserved as `UNCOMMITTED-readme-edit.patch` in this plan's SDD workspace.**
+  Read it as input, not as a decision. Its status prose is broadly right and worth reusing. Its
+  other half is not: it demoted the Designed-vs-Built table from "the authority" to a thing that
+  "lags", which weakens the discipline instead of doing the work. **The table stays the authority.**
+  The rows get flipped, which is this step, rather than the sentence naming them getting softened.
+  A status claim and a row that disagree is the defect the table exists to catch, and the fix is
+  always the row.
+
+- [ ] **Step 1c: Name `pydantic-ai-harness`, and say why the boundary is not wired through it.**
+  BOOKED 2026-08-11. `github.com/pydantic/pydantic-ai-harness` is the official capability library
+  for pydantic-ai (PyPI `pydantic-ai-harness`, 0.18.1 as of 2026-08-11). This repo is built on
+  pydantic-ai and does not use it, and a README that never mentions it reads as not knowing it
+  exists. Name it, and give the reason, which is **not** compatibility: it wants
+  `pydantic-ai-slim>=2.23.0` on Python >=3.10 and this repo is pinned at 2.23.0 on 3.11+, so
+  adoption is possible and the reason is design. `ToolGuardrail` guards tools a **pydantic-ai
+  Agent** executes; this fleet's act boundary sits at the Claude Agent SDK's `PreToolUse` hook,
+  because that is the runtime executing the fleet's tools, and the chokepoint is `attempt_send`
+  wrapping the imported `guarded_call`. Three execution layers. `ToolGuardrail` is a wiring point
+  rather than a policy, since the caller supplies the callable, so adopting it would add a place to
+  call the imported engine from and would not replace it. State the version and the date, because
+  a 0.x package that ships breaking changes between minor releases dates any claim about it.
+
+  Two convergences are worth more than the code and belong in the same paragraph: the harness
+  **deliberately declines** to ship a prompt-injection detector, on the reasoning that injection is
+  ordinary language so a pattern list catches the examples and misses the attack, and a check that
+  reads as protection without being it is worse than none. That is this repo's own doctrine,
+  arrived at independently. And its `hidden=` (drop the tool from the definitions the model sees)
+  versus a visible refusal is the same distinction as the session-roster ceiling, where the
+  research specialist has no outbound tool at all rather than a refused one.
+
+  **Carry the open question rather than resolving it in prose.** The spec keeps policy denials
+  terminal because chaperone's own README documents the `requires_approval` resume round trip as
+  unsafe: `override_args` substitutes before re-validation. The harness documents that same round
+  trip and states that on the resumed run the guard is re-evaluated and every verdict except
+  `approve` still applies. Whether that closes the hole is unverified in either direction. If it is
+  not settled by a run before this task, it is a named gap, which is the house rule anyway.
+
 - [ ] **Step 1a: Make the battery say what it did not scan.** It scans `git ls-files`, so an
   untracked file is invisible to every gate while all of them still print ok - verified during
   Task 12 by dropping an untracked file containing a stale model id into the tree and watching
