@@ -2834,7 +2834,13 @@ and, inside `render_block` after the completeness loop and before `lines` is bui
 
 ```python
     for name, value in vars(record).items():
-        if isinstance(value, str) and ("\n" in value or "\r" in value):
+        # `splitlines() != [value]`, not a test for two escapes: Python's splitlines recognises
+        # ELEVEN break characters, and every reader downstream (`answer_from`, the stripper)
+        # splits line by line. A value carrying U+2028, ,  or five others forges a block
+        # line a reader accepts as real - and the trigger is DATA, since `payload` is
+        # unconstrained JSONB and all eleven survive a JSON round trip. Testing for two of the
+        # eleven leaves eight forgery characters open.
+        if isinstance(value, str) and value.splitlines() != [value]:
             raise BlockValueUnrenderable(
                 f"{name} contains a line break, which would break the block's structure; "
                 "the control eval's stripper walks to the first blank line after the header"
@@ -2920,8 +2926,12 @@ def strip_block(prompt: str) -> str:
     COUPLING, load-bearing: this terminates at the block's end only because `render_block`
     emits no internal blank line and exactly one trailing newline, so the first blank line
     after the header IS the block's boundary. Beautifying the rendering with a blank line
-    inside it would make this strip the header alone, and the control would then pass while
-    demonstrating nothing - the precise vacuity the guard below exists to catch.
+    inside it changes what this removes - but get the DIRECTION right, because the obvious
+    statement of it is wrong. A blank line immediately AFTER the header makes this strip
+    nothing of the block, so the block-only questions still answer and the control goes RED,
+    which is a correct alarm. The dangerous placement is a blank line further DOWN: it strips
+    only the lines above it and leaves the rest standing, so the control can pass on a block
+    that was merely partly removed.
     """
     if BLOCK_HEADER not in prompt:
         raise ValueError("no rendered block in this prompt; the control has nothing to strip")
