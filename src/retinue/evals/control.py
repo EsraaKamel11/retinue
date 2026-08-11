@@ -48,8 +48,9 @@ def strip_block(prompt: str) -> str:
     STRUCTURAL, not boundary-hunting. The block is its header plus the CONSECUTIVE lines carrying
     its own labels, so the walk stops at the first line that is not the block's and the tail
     cannot be eaten. The hollow control - a strip that returns a prompt asking nothing, so all
-    three questions fail for a reason having nothing to do with the block - is impossible here by
-    construction rather than defended against, because whatever the walk stops at survives.
+    three questions fail for a reason having nothing to do with the block - now requires the
+    instruction to sit INSIDE a line the block owns, which is the whole of the residual below.
+    Whatever the walk stops at survives; nothing wider than that is claimed here.
 
     Every earlier version of this looked for the block's END instead, and each way of looking
     failed on a shape ordinary assembly produces, which is why the approach was abandoned rather
@@ -76,11 +77,21 @@ def strip_block(prompt: str) -> str:
     Neither is reachable from the data side: a stored value carrying any break `splitlines`
     recognises would render one, and `render_block` refuses such a value rather than rendering it.
 
-    RESIDUAL, checked rather than asserted. A tail whose leading lines begin with one of the
-    block's own six labels followed by ": " is still consumed. That set is a strict SUBSET of what
-    the colon rule consumed - `line.startswith(f"{label}: ")` implies `": " in line` and never the
-    reverse - so the hole is narrower by construction rather than by impression, and the six
-    label openers were run to confirm both rules lose them.
+    RESIDUAL, checked rather than asserted, and it has TWO routes rather than the one an earlier
+    draft of this docstring named. The first is about line CONTENT: a tail whose leading lines
+    begin with one of the block's own six labels followed by ": " is still consumed. That set is a
+    strict SUBSET of what the colon rule consumed - `line.startswith(f"{label}: ")` implies
+    `": " in line` and never the reverse - so the hole is narrower by construction rather than by
+    impression, and the six label openers were run to confirm both rules lose them.
+
+    The second route is about line BOUNDARIES, and no stripper can close it. A tail joined onto the
+    block's own last line, as `render_block(rec).rstrip() + " " + instruction` does, puts the
+    instruction inside a line the block rendered, and the walk takes it along with that line. The
+    control hollows. The colon rule hollowed on it identically, so this is not something the walk
+    introduced, and saying "leading lines" alone would have left it unnamed. The defence belongs at
+    assembly rather than here: `render_block` ends in exactly one newline, so appending the
+    instruction straight onto its output is both the ordinary idiom and the safe shape. Stripping
+    that newline is the one thing a caller must not do.
 
     The size of the difference was measured, not estimated. Over 24 ordinary instruction openers
     written for a drafting prompt and appended with no separator, the colon rule LOST 13 in

@@ -22,10 +22,11 @@ def rec(**over):
 def test_block_starts_with_the_header_contract():
     out = render_block(rec())
     assert out.startswith(BLOCK_HEADER + "\n")
-    # Structural contract for the control eval's stripper: it walks to the first blank line
-    # after the header, so that blank line must be the block's END. An internal blank line
-    # added for readability would make the stripper remove the header alone, and the control
-    # would then pass while demonstrating nothing.
+    # Structural contract for the control eval's stripper: it walks the CONSECUTIVE lines that
+    # carry the block's own labels and stops at the first line that is not one. A blank line
+    # added for readability stops that walk early, so the fields below it stay standing in a
+    # prompt the control believes it stripped, and the control passes while demonstrating less
+    # than it reports. Held by the two assertions below rather than by this comment.
     assert "\n\n" not in out
     assert out.endswith("\n") and not out.endswith("\n\n")
 
