@@ -2789,8 +2789,12 @@ if __name__ == "__main__":
   Note while you are here that `calibration_agreement == 1.0` over the frozen set is true **by
   construction**: the drafts' ground truth and the verdicts' `violates` are both hand-authored by
   one author in one sitting, so the test measures that author's consistency rather than a judge's
-  calibration. No code mutation can redden it; only a fixture edit can. Say so in the fixture's
-  own note rather than letting the number imply a measurement.
+  calibration. State it precisely, because the obvious phrasing is false: **no code mutation can
+  turn this 1.0 into evidence about a judge**, since both columns are one author's - but a
+  mutation of the agreement comparison itself does still redden the test, so "only a fixture edit
+  can redden it" is wrong. Verified: flipping `==` to `!=` in the comparison drops it to 0.0.
+  Say the accurate version in the fixture's own note, rather than letting the number imply a
+  measurement or letting an overstated claim about it go unchecked.
 
 ```bash
 git add src/retinue/evals/frozen.py scripts/judge_capture.py fixtures/verdicts fixtures/drafts tests/evals/test_frozen_judge.py
