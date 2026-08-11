@@ -114,9 +114,15 @@ three. A session inherits the operator's ambient configuration, so `agents=` mer
 replaces. Two things save the blast radius here and both were designed before this was known: the
 session ceiling intersects every inherited agent down to the same four tools, and the hook's total
 decision table routes an unrecognised `agent_type` to `ask`. An inherited agent is therefore
-bounded and escalates, rather than being unbounded and silent. The fleet nonetheless pins
-`setting_sources` so its canonical fixtures come from a session it fully specifies: a capture
-taken under one operator's ambient configuration is not canonical, whatever it happens to show.
+bounded and escalates, rather than being unbounded and silent. The fleet pins `setting_sources=[]`, and what that buys is
+measured rather than assumed: sixteen agent definitions fell to eight, two plugins and the
+operator's own hooks stopped running inside the capture, and the resolved tool list was identical
+either way. It does not remove the CLI's five built-in agents, which are the product rather than
+anyone's configuration, nor the five MCP servers, which reach the session from a source this
+option does not govern. That residual is guarded differently: the fixture contract asserts no
+`mcp__` tool resolves INTO the session, which is the property those servers would have to breach
+to matter. A capture taken under one machine's ambient configuration is not canonical whatever it
+shows, and partial hermeticity is worth stating as partial.
 
 The **P1 capture smoke** is the first: orchestrator plus the research subagent, with no send tool
 existing anywhere in the session. It produces the canonical fixtures for: real hook payloads from
