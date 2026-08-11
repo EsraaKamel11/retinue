@@ -30,9 +30,19 @@ class FrozenVerdict(BaseModel):
     quality: float = Field(ge=0.0, le=1.0)
 
 def load_verdicts(path: Path) -> dict[str, FrozenVerdict]:
-    """The frozen verdicts, keyed by case. Reads one file and opens nothing else."""
+    """The frozen verdicts, keyed by case. Reads one file and opens nothing else.
+
+    Two rows naming one case would collapse into one entry with the later silently winning, and
+    nothing downstream could tell: the set of keys is unchanged, so a coverage check still passes,
+    and both metrics score the survivor as though it had been the only verdict. A capture is the one
+    writer that can produce it, so the refusal belongs here at the load rather than in a reader.
+    """
     rows = json.loads(Path(path).read_text(encoding="utf-8"))["verdicts"]
-    return {r["case"]: FrozenVerdict(**r) for r in rows}
+    verdicts = {r["case"]: FrozenVerdict(**r) for r in rows}
+    if len(verdicts) != len(rows):
+        raise ValueError(f"{path}: {len(rows)} verdicts over {len(verdicts)} cases, so keying by "
+                         "case would drop one of them without saying so")
+    return verdicts
 
 def calibration_agreement(verdicts: dict[str, FrozenVerdict], ground_truth: dict[str, bool],
                           *, floor: float = 0.7) -> float:

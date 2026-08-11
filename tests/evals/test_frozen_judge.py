@@ -76,9 +76,13 @@ def test_calibration_over_the_frozen_set_is_perfect_by_construction():
 
     `ground_truth_violates` in `fixtures/drafts/` and `violates` in `fixtures/verdicts/` are both
     hand-authored by one author in one sitting, so agreement between them is arithmetic over two
-    columns of the same opinion. It cannot fall until `scripts/judge_capture.py` replaces the
-    verdict column with a judge's. What it does hold today is that the two files stay consistent
-    with each other: edit one column and this reddens.
+    columns of the same opinion. No code mutation can turn this 1.0 into evidence about a judge,
+    because both columns are one author's - but a mutation of the agreement comparison itself still
+    reddens it, which is all this test can claim today. An earlier draft of this docstring said it
+    could not fall to any code change at all, which was false and contradicted its own next sentence.
+
+    What it does hold is that the two files stay consistent with each other and that the comparison
+    drawn between them is the right one: edit one column, or invert the comparison, and this reddens.
     """
     assert calibration_agreement(load_verdicts(VERDICTS), truth(), floor=0.7) == 1.0
 
@@ -105,22 +109,49 @@ def test_calibration_excludes_verdicts_below_the_confidence_floor():
     ground = {"agrees-a": False, "agrees-b": True, "unsure-c": True}
     assert calibration_agreement(v, ground, floor=0.7) == 1.0
 
-def test_the_confidence_floor_defaults_to_seven_tenths():
-    """The same verdict read through the default floor and through an explicit lower one.
+def test_the_confidence_floor_defaults_to_seven_tenths_inclusive():
+    """Both sides of the boundary, straddling it exactly, read through the DEFAULT floor.
 
-    Every other call in this file passes `floor=` explicitly, which pins the PARAMETER and leaves
-    the declared default a number no test would notice being lowered - and lowering it silently
-    widens what counts as a confident verdict, which is the entire denominator. A default no test
+    Every other call in this file passes `floor=` explicitly, which pins the parameter and leaves
+    the declared default a number no test would notice moving - and moving it silently changes what
+    counts as a confident verdict, which is the entire denominator of calibration. A default no test
     exercises is not a contract.
 
-    The single verdict AGREES with the truth, so exclusion by the floor is the only thing that can
-    produce 0.0 here; a lowered default admits it, and it then agrees. The two lines therefore part
-    on the boundary itself rather than on the arithmetic either side of it.
+    One verdict on one side of the floor pins the default only to a RANGE, and an earlier version of
+    this test did exactly that: sitting at 0.65 it left a default anywhere in roughly (0.65, 0.90]
+    unnoticed, and said nothing whatever about whether the comparison includes its own boundary. Two
+    rows straddling the boundary exactly close all three questions at once:
+
+      0.70 must be ADMITTED  -> a raised default reddens, and so does `>=` drifting to `>`
+      0.69 must be EXCLUDED  -> a lowered default reddens
+
+    Both verdicts AGREE with the truth, so exclusion by the floor is the only thing that can produce
+    0.0 from either. The third line is the one call in this file passing a floor that is not 0.7,
+    which is what keeps a `floor` parameter quietly hardcoded back to its own default from passing
+    everywhere it is read.
     """
-    v = hand_built(("just-under", False, 0.65, 0.5))
-    ground = {"just-under": False}
-    assert calibration_agreement(v, ground) == 0.0                 # below the default: excluded
-    assert calibration_agreement(v, ground, floor=0.6) == 1.0      # admitted, and it agrees
+    on_the_floor = hand_built(("exactly-seven-tenths", False, 0.70, 0.5))
+    just_under = hand_built(("just-under", False, 0.69, 0.5))
+
+    assert calibration_agreement(on_the_floor, {"exactly-seven-tenths": False}) == 1.0
+    assert calibration_agreement(just_under, {"just-under": False}) == 0.0
+    assert calibration_agreement(just_under, {"just-under": False}, floor=0.6) == 1.0
+
+def test_two_verdicts_for_one_case_are_refused_rather_than_collapsed(tmp_path):
+    """Keying by case is what makes a dict the right return, and what makes a duplicate silent.
+
+    Two rows naming one case collapse into one entry with the later quietly winning, and every other
+    test here still passes: the set of KEYS is unchanged, so the coverage check holds, and both
+    metrics score the survivor as though it had been the only verdict. `scripts/judge_capture.py` is
+    the one writer that can produce this - it globs the drafts and trusts each file's own `case` - so
+    the load refuses rather than picking a winner nobody asked it to pick.
+    """
+    doubled = tmp_path / "doubled.json"
+    doubled.write_text(json.dumps({"meta": {"hand_authored": True}, "verdicts": [
+        {"case": "same", "violates": False, "confidence": 0.9, "quality": 0.8},
+        {"case": "same", "violates": True, "confidence": 0.9, "quality": 0.2}]}), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_verdicts(doubled)
 
 def test_no_confident_verdict_is_a_calibration_failure_not_a_pass():
     """0.0 when nothing clears the floor - the branch a vacuous pass would hide.

@@ -88,8 +88,15 @@ def _provenance_findings(root: Path) -> list[str]:
         findings.append(f"captured_sessions_mixed: {sorted(sessions.values())}")
     return findings
 
+#: Every RETINUE_LIVE-gated script. Each one is manual, keyed and not repeatable for free, so a test
+#: module importing one could spend a key or overwrite a captured fixture as a side effect of mere
+#: collection. A tuple rather than the single literal this began as: every such script's docstring
+#: claims "never imported by tests", and a rule naming only the first of them left that claim
+#: asserted and unenforced for the rest - which is the shape of gap this file exists to close.
+_GATED_SCRIPTS = ("capture_smoke", "judge_capture")
+
 def _smoke_import_findings(root: Path) -> list[str]:
-    """An import STATEMENT naming the capture smoke, told apart from a mention of one.
+    """An import STATEMENT naming a gated script, told apart from a mention of one.
 
     The skip reason below names `scripts/capture_smoke.py` in a string, and a grep cannot tell
     that from an import - which is why the brief's `grep -r capture_smoke tests/` check broke on
@@ -105,8 +112,9 @@ def _smoke_import_findings(root: Path) -> list[str]:
                 names = [base] + [f"{base}.{a.name}" for a in node.names]
             else:
                 continue
-            if any("capture_smoke" in n for n in names):
-                findings.append(f"test_imports_capture_smoke: {py.name}:{node.lineno}")
+            hit = [g for g in _GATED_SCRIPTS if any(g in n for n in names)]
+            if hit:
+                findings.append(f"test_imports_gated_script: {py.name}:{node.lineno} {hit}")
     return findings
 
 #: The CLI's own built-in agents at 2.1.222, read off a captured `system:init`. Not configuration:
@@ -198,6 +206,23 @@ def test_the_smoke_import_rule_tells_an_import_from_a_mention(tmp_path):
     (tmp_path / "imports.py").write_text("from scripts.capture_smoke import main\n",
                                          encoding="utf-8")
     assert any("imports.py" in f for f in _smoke_import_findings(tmp_path))
+
+def test_the_gated_script_rule_fires_on_every_script_it_names(tmp_path):
+    """One specimen per branch, which is the standard `tools/battery.sh` holds itself to.
+
+    A tuple whose later entries never appear in a planted tree is a rule that reads broader than it
+    is: retarget the second name at a script that exists nowhere and a one-specimen test still
+    reports a clean pass with half the rule dead. Each name gets its own planted import, and the
+    count is compared to the tuple's length so an entry that stops matching is a finding rather
+    than a silence.
+    """
+    for i, script in enumerate(_GATED_SCRIPTS):
+        (tmp_path / f"imports_{i}.py").write_text(f"from scripts.{script} import main\n",
+                                                  encoding="utf-8")
+    found = _smoke_import_findings(tmp_path)
+    assert len(found) == len(_GATED_SCRIPTS), found
+    for script in _GATED_SCRIPTS:
+        assert any(script in f for f in found), f"rule never fired for {script}"
 
 def test_a_captured_payload_carries_the_agent_type_key():
     """The hook routes on `agent_type`, and the documented hook input does not list it.
