@@ -85,10 +85,17 @@ def test_the_two_projections_of_one_record_agree_on_the_money():
     is a draft judged against a figure it was never shown. This is the assertion that couples the
     two encodings; fixing either site alone leaves it red. Read back through the control eval's own
     reader rather than by substring, so the block's line is parsed the same way the eval parses it.
+
+    Three values rather than one, and that is not padding. With a single exponent case, two
+    encoders that agreed at `2.5E+5` and diverged at `250000.50` would pass here, which is the whole
+    failure this test exists to catch: the two sites spell the same format today but nothing makes
+    them one encoder, so the coverage has to be the check. A fraction and a zero are the two shapes
+    where a plausible divergence hides.
     """
-    r = rec(stated_check_size=Decimal("2.5E+5"))
-    assert answer_from(render_block(r), "stated_check_size") == "250000"
-    assert as_policy_record(r).get("stated_check_size") == "250000"
+    for stored, expected in (("2.5E+5", "250000"), ("250000.50", "250000.50"), ("0", "0")):
+        r = rec(stated_check_size=Decimal(stored))
+        assert answer_from(render_block(r), "stated_check_size") == expected, stored
+        assert as_policy_record(r).get("stated_check_size") == expected, stored
 
 def test_a_zero_check_size_is_a_fact_the_policy_record_carries():
     """`is not None`, never falsiness, and the sharp failure runs opposite to the obvious one.

@@ -121,15 +121,39 @@ def test_budget_exceeded_raises():
     # passes a character count and fails a byte count. The budget bounds bytes.
     with pytest.raises(BlockBudgetExceeded):
         render_block(rec(pass_reason="é" * 200), budget=400)
-    # MONEY is now its own route to this raise, at the DEFAULT budget, and it was not before.
-    # Plain notation is wider than `str(Decimal)` for small exponents - 902 characters against 6 -
-    # so a value the block used to render can now exceed the budget. Measured rather than
-    # estimated: the boundary sits between 1E-850 (1015 bytes, renders) and 1E-860 (1025 bytes,
-    # raises), which is far outside any figure a cheque size can hold, and the direction is the
-    # fail-closed one. Under `str()` this value rendered as `stated_check_size: 1E-900`, showed the
-    # model exponent notation, and was then dropped by the engine's canonicaliser in silence.
-    with pytest.raises(BlockBudgetExceeded):
-        render_block(rec(stated_check_size=Decimal("1E-900")))
+
+def test_the_widened_money_line_reaches_the_budget_from_both_ends():
+    """MONEY is its own route to the budget raise, at the DEFAULT budget, and it was not before.
+
+    Plain notation is wider than `str(Decimal)` at BOTH ends of the exponent range, and the first
+    version of this note recorded only the small half. `Decimal("1E-900")` is 902 characters against
+    6 under `str()`; `Decimal("1E+900")` is 901 against 6. The two boundaries sit one step apart
+    because "0." costs two characters at the small end where the large end pays one leading digit.
+
+    Every figure here is measured against THIS FILE'S `rec()`, whose `pass_reason` is
+    "stage too early". That is said because it is load-bearing: the same measurement taken against
+    `tests/specialists/test_drafting.py`'s record, whose `pass_reason` is None, comes out two bytes
+    narrower and puts the boundary in a different place. A boundary with no record named beside it
+    is not a measurement, and the first version of this note carried figures from the other file.
+
+        1E-857  1024 bytes, renders    |    1E+858  1024 bytes, renders
+        1E-858  1025 bytes, raises     |    1E+859  1025 bytes, raises
+
+    Asserted rather than described, because prose is what went stale. If the fixture changes these
+    redden and the figures get re-measured, which is the control working rather than friction.
+
+    The direction is the fail-closed one, which is why this is pinned rather than reverted. Under
+    `str()` the same record rendered as `stated_check_size: 1E-900`, showed the model exponent
+    notation, and was then dropped from the engine's record values in silence. Values wider than the
+    default budget are now refused at the write barrier, so reaching this raise from stored data
+    takes a record built directly. That makes this defence in depth rather than a dead branch: the
+    barrier bounds what can never render, and the block still enforces the budget it actually has.
+    """
+    render_block(rec(stated_check_size=Decimal("1E-857")))      # the last renderable, small end
+    render_block(rec(stated_check_size=Decimal("1E+858")))      # the last renderable, large end
+    for over in ("1E-858", "1E+859", "1E-900", "1E+900"):
+        with pytest.raises(BlockBudgetExceeded):
+            render_block(rec(stated_check_size=Decimal(over)))
 
 def test_a_field_value_with_a_line_break_is_refused():
     with pytest.raises(BlockValueUnrenderable, match="pass_reason"):
