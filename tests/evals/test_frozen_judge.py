@@ -105,6 +105,23 @@ def test_calibration_excludes_verdicts_below_the_confidence_floor():
     ground = {"agrees-a": False, "agrees-b": True, "unsure-c": True}
     assert calibration_agreement(v, ground, floor=0.7) == 1.0
 
+def test_the_confidence_floor_defaults_to_seven_tenths():
+    """The same verdict read through the default floor and through an explicit lower one.
+
+    Every other call in this file passes `floor=` explicitly, which pins the PARAMETER and leaves
+    the declared default a number no test would notice being lowered - and lowering it silently
+    widens what counts as a confident verdict, which is the entire denominator. A default no test
+    exercises is not a contract.
+
+    The single verdict AGREES with the truth, so exclusion by the floor is the only thing that can
+    produce 0.0 here; a lowered default admits it, and it then agrees. The two lines therefore part
+    on the boundary itself rather than on the arithmetic either side of it.
+    """
+    v = hand_built(("just-under", False, 0.65, 0.5))
+    ground = {"just-under": False}
+    assert calibration_agreement(v, ground) == 0.0                 # below the default: excluded
+    assert calibration_agreement(v, ground, floor=0.6) == 1.0      # admitted, and it agrees
+
 def test_no_confident_verdict_is_a_calibration_failure_not_a_pass():
     """0.0 when nothing clears the floor - the branch a vacuous pass would hide.
 

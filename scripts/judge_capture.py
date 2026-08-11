@@ -15,6 +15,12 @@ below refuses that outright, before the agent is constructed and before a single
 Credentials are the Anthropic SDK's, not the `claude` CLI's: `pydantic_ai.Agent("anthropic:...")`
 resolves ANTHROPIC_API_KEY, then ANTHROPIC_AUTH_TOKEN, then an `ant auth login` profile on disk. A
 machine whose Claude Code login works can still have nothing this script can use.
+
+One hazard this path retires rather than inherits. `tools/battery.sh` settles, in its own comments,
+what to do about a captured fixture whose model-authored prose carries an em dash, and reserves a
+narrow per-path exemption for the day one appears. It cannot be this path: `JudgeCall` is a bool and
+two floats, so nothing written here carries prose at all, and the only string in the output is a
+case name read back off the draft that produced it.
 """
 from __future__ import annotations
 import asyncio, json, os, sys
