@@ -3190,9 +3190,20 @@ def test_postgres_sink_persists_a_row():
     bootstrap(dsn)
     q = DurableQueues(postgres_sink(dsn), now=NOW)
     q.put("human-review", handoff())
+    # AMENDED 2026-08-11, from the Task 18 review. This first counted rows by queue name and
+    # asserted `n >= 1`, which is satisfied by a row ANY earlier run left behind. The Postgres lane
+    # is the ONLY lane that can execute `postgres_sink`'s body, so a count over a reused database
+    # would pass with that body emptied or its parameters mis-bound, and the blind spot the matrix
+    # honestly records would stay open even on the one run that could close it. The injected clock
+    # is what makes the row identifiable: NOW is fixed, so the test can read back the row IT wrote.
     with psycopg.connect(dsn) as c:
-        n = c.execute("SELECT count(*) FROM review_queue WHERE queue_name='human-review'").fetchone()[0]
-    assert n >= 1
+        row = c.execute("SELECT handoff, enqueued_at FROM review_queue "
+                        "WHERE queue_name='human-review' AND enqueued_at = %s",
+                        (NOW(),)).fetchone()
+    assert row is not None, "the sink wrote no row this test can identify as its own"
+    stored, at = row
+    assert stored == handoff().model_dump()   # the payload, not merely a count
+    assert at == NOW()
 ```
 
 - [ ] **Step 3: Run to verify failure**, then implement:
