@@ -2840,7 +2840,10 @@ and, inside `render_block` after the completeness loop and before `lines` is bui
         # line a reader accepts as real - and the trigger is DATA, since `payload` is
         # unconstrained JSONB and all eleven survive a JSON round trip. Testing for two of the
         # eleven leaves eight forgery characters open.
-        if isinstance(value, str) and value.splitlines() != [value]:
+        # The emptiness term is load-bearing, not defensive: `''.splitlines()` is `[]`, which
+        # is not `['']`, so without it an honestly EMPTY value is refused instead of
+        # rendering its stated absence.
+        if isinstance(value, str) and value and value.splitlines() != [value]:
             raise BlockValueUnrenderable(
                 f"{name} contains a line break, which would break the block's structure; "
                 "the control eval's stripper walks to the first blank line after the header"
