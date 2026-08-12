@@ -32,6 +32,24 @@ def test_unknown_kind_is_rejected_at_construction(ns):
 def test_bitemporal_fields_are_distinct_and_required(ns):
     t = tp(ns, "a")
     assert t.occurred_at != t.recorded_at
+    # Requiredness, and the name promised it while only distinctness was held. `tp` always passes
+    # the two module literals, so the line above reduces to `T0 != T1` and says nothing about the
+    # model: measured, give either field a default and every test in this file stays green. The
+    # cost of that silence is not abstract - `_last`, `last_contact` and `last_touch_attribution`
+    # all read `occurred_at`, so a defaulted one moves each of them onto a fabricated timestamp,
+    # and NOT NULL in schema.sql cannot object because a default writes a non-null.
+    #
+    # `OutcomeRecord` carries the identical arm one module over, in
+    # test_outcomes.py::test_occurred_and_observed_are_both_required_and_distinct, and this is that
+    # arm for `Touchpoint`. The field dict is spelled out rather than taken from `model_dump`, for
+    # the reason that test spells it out: a dict derived from an instance moves with the model, so
+    # both sides of the check would travel together.
+    for missing in ("occurred_at", "recorded_at"):
+        fields = {"idempotency_key": f"{ns}-req", "investor_id": f"inv-{ns}", "mandate_id": "m-1",
+                  "kind": "contact", "payload": {}, "occurred_at": T0, "recorded_at": T1}
+        del fields[missing]
+        with pytest.raises(Exception):
+            Touchpoint(**fields)
 
 def test_idempotency_keys_are_globally_unique_not_per_investor(store, ns):
     # The schema makes idempotency_key the PRIMARY KEY: one namespace for every investor.

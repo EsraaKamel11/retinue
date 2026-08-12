@@ -83,7 +83,7 @@ install with its dev extra. Python >=3.11.
 ## The three lanes
 
 **Default lane** - `python -m pytest`. No daemon, no network, no key, on a fresh clone. At this
-commit: 237 passed, 9 skipped, the 9 being 8 for the Postgres lane below and 1 for the P4 ask
+commit: 240 passed, 9 skipped, the 9 being 8 for the Postgres lane below and 1 for the P4 ask
 replay, whose fixture only a live demo run can produce. No second `-q`: `pyproject.toml`'s
 `addopts` already carries one, and `-qq` deletes the summary line that both CI and the battery
 read. The lane holds the options-shape tests, the hook callback replayed against captured payloads,

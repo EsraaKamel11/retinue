@@ -32,11 +32,25 @@ Register = Literal["EXCEPTION", "UNVERIFIABLE", "CLEAN"]
 #: long draft with a short row's verdict, which is the direction that must not exist. Made
 #: non-greedy, `test_a_draft_forging_the_closing_delimiter_answers_for_no_frozen_row` reddens.
 #:
-#: Drift is loud rather than silent: break the agreement between this pattern and the tags the
-#: import emits and this matches nothing, every draft fails closed, and FIVE tests go red - three
-#: reporting a checker that is down, and two failing on the extraction itself and so naming the
-#: cause. Measured under M8 rather than counted by hand, and re-measured whenever a test that reads
-#: the extraction is added.
+#: Drift is loud rather than silent, and how loud is the part a triager actually gets. Break the
+#: agreement between this pattern and the tags the import emits and this matches nothing, every
+#: draft fails closed, and the SUITE goes 20 red. Only 2 of those name the cause: they assert on
+#: `candidate_draft_body` and report `assert None == <the body>`. NONE of the other 18 names it.
+#: They report the checker down - `no frozen verdict for this draft`, which says that and not why -
+#: or they fail on a consequence of it: an allow that came back False, an empty ledger tuple, a
+#: routing category set, a violation class that arrived as `other`. Those two groups are
+#: deliberately not split into integers, because where one ends and the other begins depends on how
+#: far pytest elided a repr in the run being read, and a number that moves with the eliding is not
+#: a measurement. The 2 and the 18 do not move with it.
+#:
+#: An earlier version of this row counted `tests/boundary/test_checker_lane.py` ALONE, where the
+#: split is 5 red, 3 and 2, and offered that 3:2 as the ratio a triager gets. True of that one
+#: file, and not what the run reports: the fifteen further tests that read this extraction were
+#: added after that sentence and every one of them landed on the silent side. Measured suite-wide
+#: over 249 collected, and the integers move with the suite while the shape does not - two rows
+#: name the extraction because two rows assert on it, and every other red is a consequence. There
+#: is DELIBERATELY no standing promise here to re-measure on each added test. That promise is
+#: exactly what rotted, and re-arming it would buy the same rot a second time.
 #:
 #: What M8 renames is the tag HERE, which is one side of that agreement. An earlier version of this
 #: sentence said "rename either tag upstream", naming the side the row does NOT touch. Both sides

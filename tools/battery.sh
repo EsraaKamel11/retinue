@@ -38,7 +38,7 @@ say() { printf '%-40s %s\n' "$1" "$2"; }
 # equalities, for the reason the old comment gave and which has not changed: a floor raised to
 # equality reddens on the first added test and gets exempted, which is how a gate stops measuring.
 FILE_FLOOR=78   # tracked files scanned; 82 at the time of writing (was 40, against 50)
-PASS_FLOOR=230  # tests that must PASS; the tree holds 237 passed and 9 skipped (was 72, against 75)
+PASS_FLOOR=230  # tests that must PASS; the tree holds 240 passed and 9 skipped (was 72, against 75)
 
 TMP=$(mktemp -d) || { printf 'battery: could not make a temp dir\n' >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT

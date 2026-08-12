@@ -50,6 +50,13 @@ def audit(root: Path) -> list[str]:
     return findings
 
 if __name__ == "__main__":
+    # THE ROOT IS `src/retinue` AND NOTHING ELSE, which bounds what these rules may be offered as.
+    # `README.md` calls them the substitute for a purity audit the vendored wheel does not ship, and
+    # the substitution is partial in one direction worth naming: every rule here is import-shaped, so
+    # what it can see is what a module IMPORTS. Policy logic written inline, importing nothing, is
+    # invisible to all of them, and so is everything under `tests/`, `tools/` and `scripts/`, which
+    # this root does not reach. A clean run says no module outside boundary/ reaches the gate surface
+    # or names the send tool; it does not say this package holds no policy of its own.
     found = audit(Path(__file__).resolve().parents[1] / "src" / "retinue")
     for f in found:
         print(f, file=sys.stderr)

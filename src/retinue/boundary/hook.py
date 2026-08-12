@@ -1,6 +1,6 @@
-"""The one parent-registered PreToolUse hook. Routing first (a table, total by test), then the
-imported deterministic lane on send payloads. The checker never runs here - it runs at the
-chokepoint inside the send tool body (P3). Unknown agent_type fails toward the human."""
+"""The one parent-registered PreToolUse hook. Routing first (a table, held against the topology by
+test), then the imported deterministic lane on send payloads. The checker never runs here - it runs
+at the chokepoint inside the send tool body (P3). Unknown agent_type fails toward the human."""
 from __future__ import annotations
 import asyncio
 from chaperone.gates.sdk_callback import pre_tool_use_deny
@@ -8,18 +8,40 @@ from chaperone.gates.sdk_callback import pre_tool_use_deny
 SEND_TOOL = "send_message"   # the ONE definition; the audit holds every other module to importing it
 SEND_TOOLS = frozenset((SEND_TOOL, "mcp__retinue__" + SEND_TOOL))   # live server name as data
 
+#: The routing table as DATA: each agent type this fleet declares, paired with the tool names it is
+#: asked about. A table rather than a chain of `if`s so that `decide`'s DOMAIN can be read and held
+#: against something - `test_decision_table_is_total` compares these keys with
+#: `orchestration.topology.AGENTS`, and a spot check over a handful of arms cannot make that
+#: comparison. The dependency runs one way (topology imports SEND_TOOLS from here), so the two are
+#: held equal from a test rather than derived one from the other.
+#:
+#: A tuple of pairs, not a dict, and the difference is load-bearing in a narrow way worth stating
+#: exactly. `==` against each key in turn never hashes, so a non-string agent_type out of a
+#: malformed payload walks off the end of the table and takes the unknown-agent ask. A dict lookup
+#: or a set membership test raises TypeError on that value instead. MEASURED, both shapes still
+#: fail closed: the one non-test caller runs inside `pre_tool_use`'s guarded body, which answers
+#: ask either way. What differs is the reason the human reads - `unrecognised agent type [...]`
+#: here, against `the router could not complete: TypeError` from a hashing form, which names the
+#: router for a payload that was what went wrong. A diagnosis property, then, and not a containment
+#: one, and it is stated as the smaller thing it is.
+ROUTING: tuple[tuple[str, frozenset[str]], ...] = (
+    ("research", frozenset()),
+    ("drafting", frozenset()),
+    ("conversation", SEND_TOOLS),
+)
+ROUTED_AGENTS = frozenset(name for name, _ in ROUTING)
+
 def decide(agent_type: str | None, tool_name: str) -> str:
     if agent_type is None:
         return "allow"
-    # A tuple, not a frozenset, and the difference is load-bearing: `in` on a tuple compares with
-    # `==` and never hashes, so a non-string agent_type from a malformed payload reaches the ask
-    # below instead of raising TypeError. That keeps `decide` total for every caller, and leaves
-    # the router's own guard a second line of defence rather than the only one. Tidying this into
-    # a frozenset for symmetry with SEND_TOOLS trades a fail-closed path for a raise.
-    if agent_type in ("research", "drafting"):
-        return "allow"
-    if agent_type == "conversation":
-        return "ask" if tool_name in SEND_TOOLS else "allow"
+    for known, gated in ROUTING:
+        if agent_type == known:
+            # `gated and` short-circuits, so an agent with nothing gated never touches tool_name.
+            # MEASURED rather than reasoned from CPython's set internals: `decide("research",
+            # ["Read"])` answers "allow" as written here and raises TypeError with the short circuit
+            # removed, because membership hashes its key before it looks, empty set or not. That
+            # "allow" is the answer the if-chain this table replaced gave, preserved exactly.
+            return "ask" if gated and tool_name in gated else "allow"
     return "ask"
 
 def _ask(reason: str) -> dict:

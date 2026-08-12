@@ -444,8 +444,24 @@ def test_a_captured_payload_carries_the_agent_type_key():
 def test_the_captured_session_is_the_topology_plus_nothing_ambient():
     """A capture taken on a machine whose settings reach the session is not canonical, whatever
     it happens to show - and it would otherwise become the canon quietly, since every fixture
-    here is replayed forever."""
-    assert _init_findings(_captured_init()) == []
+    here is replayed forever.
+
+    BOTH KEYS ARE PINNED NON-EMPTY BEFORE THE FINDINGS ARE TRUSTED, and that is not defensive
+    padding. `_init_findings` reads `init.get(...) or ()` on each, so every rule below fires when
+    its key is present and goes silent when it is absent or empty: measured, deleting either
+    `payload.tools` or `payload.agents` from the fixture leaves the whole suite green, while
+    appending an `mcp__` name to the tool list correctly reddens this row. `README.md` leaves
+    `strict_mcp_config` unset BECAUSE the tool rule holds over this file, so a payload with no tool
+    list would carry that reasoning on a check that read nothing. Truthiness rather than `in`,
+    because an empty list is the same vacuity one step further down.
+
+    This is `test_every_fixture_json_carries_provenance`'s own reasoning one level up, in the same
+    words: absence of files is not evidence, and neither is absence of a key.
+    """
+    init = _captured_init()
+    assert init.get("agents"), "the captured init lists no agents; the ambient-agent rule reads nothing"
+    assert init.get("tools"), "the captured init lists no tools; the mcp-tool rule reads nothing"
+    assert _init_findings(init) == []
 
 def test_the_init_rules_fire_on_a_planted_session():
     assert any("init_declares_ambient_agents" in f

@@ -11,17 +11,33 @@ def tp(key, kind, occurred, **payload):
     return Touchpoint(idempotency_key=key, investor_id="inv-1", mandate_id="m-1",
                       kind=kind, payload=payload, occurred_at=occurred, recorded_at=T[3])
 
+PASS_REASON = "fund is fully allocated for this vintage"
+
 def seeded():
     s = InMemoryStore()
     s.append(tp("i", "identity", T[0], jurisdiction="US", domain="example.test"))
     s.append(tp("c1", "contact", T[1]))
     s.append(tp("k", "stated_check_size", T[2], amount="250000"))
     s.append(tp("c2", "contact", T[2]))
+    # The one kind the seed never held, which left `pass_reason` the single record field with no
+    # positive assertion anywhere: measured, change the projection's payload key from "reason" to
+    # anything else and the whole suite stays green, because the only row touching that field
+    # asserts None over a store that never carried one.
+    s.append(tp("p", "pass_reason", T[2], reason=PASS_REASON))
     return s
 
 def test_record_fields_are_all_derived():
+    """All SIX, which is what the name says and what four of them used to hold.
+
+    `pass_reason` is the field this row exists for now. `block.py` rests its whole
+    line-break-forgery guard on that expression being free text out of a JSON payload, and
+    `as_policy_record` carries it into the policy vocabulary, so a projection reading the wrong
+    payload key drops it silently everywhere downstream and reports an absence as a fact.
+    """
     r = project_record(seeded(), "inv-1")
-    assert abs(r.stated_check_size - Decimal("250000")) < Decimal("0.01")   # tolerance, never ==
+    assert r.investor_id == "inv-1"
+    assert r.stated_check_size == Decimal("250000")
+    assert r.pass_reason == PASS_REASON
     assert r.last_contact == T[2]                       # max occurred_at of contact kinds
     assert (r.jurisdiction, r.domain) == ("US", "example.test")
 

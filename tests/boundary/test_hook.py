@@ -1,7 +1,8 @@
-import asyncio, json
+import ast, asyncio, inspect, json
 from pathlib import Path
 import pytest
-from retinue.boundary.hook import SEND_TOOL, SEND_TOOLS, decide, pre_tool_use
+from retinue.boundary import hook
+from retinue.boundary.hook import ROUTED_AGENTS, SEND_TOOL, SEND_TOOLS, decide, pre_tool_use
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "payloads"
 
@@ -22,6 +23,21 @@ def load_captured_research():
     raise AssertionError(f"no captured research Read payload under {FIX}")
 
 def test_decision_table_is_total():
+    """Total over the TOPOLOGY, which is the half the spot check below cannot reach.
+
+    The arms alone are a spot check and the name claimed more than they held: measured, add a
+    fifth arm to `decide`, or a fourth entry to `AGENTS` with no arm, and the whole suite stays
+    green. The first assertion is the bind that closes both directions. An agent declared in the
+    topology and unrouted here would take the unknown-agent ask, which is safe and is also a
+    routing table that has quietly stopped describing the fleet; an arm here for an agent the
+    topology does not declare is a decision nothing can reach.
+
+    `hook.py` cannot import `AGENTS` - `topology` imports `SEND_TOOLS` from it, so the dependency
+    runs one way only. That is why the two are held equal from a test rather than derived one from
+    the other, which is this repository's ordinary control for a fact stated twice.
+    """
+    from retinue.orchestration.topology import AGENTS
+    assert ROUTED_AGENTS == set(AGENTS)
     assert decide(None, "anything") == "allow"                 # main thread
     assert decide("research", "Read") == "allow"
     assert decide("drafting", "Read") == "allow"
@@ -31,6 +47,60 @@ def test_decision_table_is_total():
     assert decide("conversation", SEND_TOOL) == "ask"
     assert decide("conversation", "Read") == "allow"           # non-send conversation tool
     assert decide("mystery", "Read") == "ask"                  # unknown fails toward the human
+
+def _agent_type_literals(source: str) -> set[str]:
+    """Every string constant `decide`'s own body compares `agent_type` against.
+
+    Parsed rather than grepped, for the reason `tools/fleet_audit.py` and
+    `tests/test_fixture_meta.py` both give: a docstring discussing an agent type is not an arm, and
+    a comparison written with single quotes is. Both comparison shapes are read - `==` against a
+    constant, and membership in a literal tuple, list or set - because an arm smuggled back in
+    would most naturally wear one of them.
+    """
+    fn = next(n for n in ast.walk(ast.parse(source))
+              if isinstance(n, ast.FunctionDef) and n.name == "decide")
+    out: set[str] = set()
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Compare):
+            continue
+        names = {n.id for n in ast.walk(node.left) if isinstance(n, ast.Name)}
+        names |= {n.id for c in node.comparators for n in ast.walk(c) if isinstance(n, ast.Name)}
+        if "agent_type" not in names:
+            continue
+        for side in (node.left, *node.comparators):
+            for n in ast.walk(side):
+                if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                    out.add(n.value)
+    return out
+
+def test_the_routing_table_is_the_only_place_decide_names_an_agent_type():
+    """What keeps the bind above from being one an arm can step around.
+
+    `ROUTED_AGENTS` is derived from `ROUTING`, so it moves with a row added to the table and does
+    NOT move with an `if agent_type == "auditor"` written straight into the function body - which
+    is the mutation that was measured, and it would otherwise still leave the suite green. The
+    domain lives in the table; this row is what says so.
+    """
+    assert _agent_type_literals(inspect.getsource(hook)) == set()
+
+def test_the_extractor_finds_an_arm_written_outside_the_table():
+    """The control on the row above, which would otherwise pass on an extractor that found nothing.
+
+    Both comparison shapes, because a rule that reads one of them reads as though it read both.
+    """
+    planted = ('def decide(agent_type, tool_name):\n'
+               '    if agent_type == "auditor":\n'
+               '        return "allow"\n'
+               '    if agent_type in ("archivist", "courier"):\n'
+               '        return "allow"\n'
+               '    return "ask"\n')
+    assert _agent_type_literals(planted) == {"auditor", "archivist", "courier"}
+    # A mention that is not a comparison stays out, or the rule above would redden on prose.
+    mention = ('def decide(agent_type, tool_name):\n'
+               '    """The conversation arm is discussed here, not written here."""\n'
+               '    note = "research"\n'
+               '    return "ask"\n')
+    assert _agent_type_literals(mention) == set()
 
 def test_conversation_is_asked_on_every_spelling_of_the_send_tool():
     """Both members of `SEND_TOOLS`, because Task 22 is what made the second one reachable.
@@ -81,6 +151,31 @@ def test_outward_send_returns_ask_shape():
     out = asyncio.run(pre_tool_use(load("provisional_send.json"), None, None))
     spec = out["hookSpecificOutput"]
     assert spec["hookEventName"] == "PreToolUse" and spec["permissionDecision"] == "ask"
+
+def test_a_conversation_send_asks_for_the_SEND_reason_and_not_the_unknown_agent_one():
+    """The reason a human is shown, held in the DEFAULT lane.
+
+    `pre_tool_use` answers "ask" down two arms and every other default-lane assertion on an ask
+    reads `permissionDecision` alone. Measured: delete the send branch and both asks fall through
+    to the unknown-agent line, the suite stays fully green, and the human approving a correctly
+    routed conversation send reads `unrecognised agent type 'conversation'; unknown fails toward
+    the human` - a class the router evaluated and answered, reported as one it did not recognise.
+
+    `tests/boundary/test_ask_replay.py` asserts this same wording and is the only other place that
+    does, over a CAPTURED payload, and it SKIPS until the P4 demo has run. A reason held solely by
+    a skipped test is a reason nothing holds, which is why this row is here and not there: that
+    file stays the capture-replay control its own docstring says it is.
+
+    Both spellings, because a send arm narrowed to the bare name would leave the `mcp__` spelling
+    asking for the unknown-agent reason while its decision stayed "ask". The shape of `SEND_TOOLS`
+    is pinned in `test_conversation_is_asked_on_every_spelling_of_the_send_tool`, so an emptied
+    constant reddens there rather than making this loop vacuous in silence.
+    """
+    p = load("provisional_send.json")
+    for name in sorted(SEND_TOOLS):
+        spec = asyncio.run(pre_tool_use({**p, "tool_name": name}, None, None))["hookSpecificOutput"]
+        assert "outward send by" in spec["permissionDecisionReason"], name
+        assert "unrecognised agent type" not in spec["permissionDecisionReason"], name
 
 def test_research_read_passes_untouched():
     # Was `provisional_research.json`, a hand-authored double of exactly this call whose own note

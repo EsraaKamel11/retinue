@@ -49,8 +49,20 @@ def test_the_identity_guard_covers_domain_not_only_jurisdiction():
             build_draft(rec(domain=absent), THREAD, "A short update.", ())
 
 def test_tool_name_is_the_imported_single_home():
+    """The draft carries the boundary's own constant. What holds "never RESPELLED" is elsewhere.
+
+    `is` cannot hold that, and the comment here used to say it did. `send_message` is
+    identifier-shaped, so CPython interns the literal at compile time and any respelling of it
+    inside this package is the SAME object: measured, respell it in `specialists/drafting.py` and
+    this line stays green while `tests/test_fleet_audit.py::test_the_real_tree_is_clean` and
+    `::test_cli_exit_codes` go red on the audit's `send_tool_single_home` rule. That rule is what
+    holds the single home, and it is a different file from this one on purpose.
+
+    What this line does hold is narrower and still worth a row: the name reaching the draft is the
+    imported object and not an equal string assembled at run time, which interning does not cover.
+    """
     d = build_draft(rec(), THREAD, "A short update.", ())
-    assert d.tool_name is SEND_TOOL      # imported, never respelled - the audit's rule stays green
+    assert d.tool_name is SEND_TOOL
 
 def test_policy_record_carries_money_as_string_from_decimal():
     r = as_policy_record(rec())
