@@ -3880,7 +3880,13 @@ proposed roster : ['Read', 'mcp__retinue__send_message', 'send_message']
 RESOLVED        : ['Read']
 ```
 
-The default lane would not notice, because the test above asserts the DECLARED roster. That is the
+The default lane would not notice **from this task's own tests**, because the test above asserts the
+DECLARED roster. Corrected 2026-08-11 after the implementer measured it: an existing test,
+`test_the_session_roster_covers_every_declared_agent_roster`, DOES redden on the stripped
+configuration, so "nothing would have caught it" was true of the plan and false of the tree. The new
+test still earns its place, and the distinction is the point: the existing one is a STARVATION check,
+satisfied by any fix at all including deleting the send tool from conversation's roster, while the
+new one pins the DIRECTION. That is the
 same failure Task 7 already hit once and wrote a comment against: the options shape asserted while
 the runtime is starved. Here it would ship a conversation specialist that cannot reach the tool the
 whole gating story is about, and Task 23's demo would abort on its offer assertion - correctly, and
@@ -3906,9 +3912,17 @@ def test_the_send_tool_survives_the_session_intersection():
 
 - [ ] **Step 3: Run to verify pass** - Expected: 4 passed; Task 7's and Task 9's suites still
   green (the audit's `send_tool_single_home` rule is the reason the roster change imports).
-- [ ] **Step 4: Inertness proof, then commit** - set conversation's `AgentDefinition` prompt to
-  `"" + CONVERSATION_PROMPT` (equal string, different object): the `is`-parity test goes RED;
-  restore.
+- [ ] **Step 4: Inertness proof, then commit** - set conversation's `AgentDefinition` prompt to a
+  string that is EQUAL to `CONVERSATION_PROMPT` and is a different object: the `is`-parity test goes
+  RED; restore.
+
+  **AMENDED 2026-08-11: this step named an arm that is itself inert.** It said to use
+  `"" + CONVERSATION_PROMPT`. CPython folds that at compile time, so it is the SAME OBJECT, the
+  parity test stays green, and the named proof would have been recorded as a demonstration while
+  demonstrating nothing. Four of eight obvious spellings of "equal but not identical" are
+  identity-preserving, so pick one and MEASURE that `is` is False before recording the row rather
+  than reasoning about which spelling copies. Checked when this was written: this is the only
+  inertness arm in the plan that does not mutate a code path, so it is a member and not a class.
 
 ```bash
 git add src/retinue/specialists/conversation.py src/retinue/orchestration/topology.py tests/specialists/test_conversation.py
