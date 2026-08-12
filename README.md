@@ -34,12 +34,13 @@ contested-quantity rendering, the weights-update sketch) and two notes inherited
 four, written before the approval bridge and the ladder tier joined the table, which is the
 count-versus-row disagreement the previous sentence describes.
 
-Four things below are built and have never executed anywhere: the Postgres lane, the judge capture,
-the live demo, and CI itself. Each says so where it is documented, and none of them is described
-here as a run that happened.
+Three things below are built and have never executed anywhere: the Postgres lane, the live demo,
+and CI itself. Each says so where it is documented, and none of them is described here as a run
+that happened. The judge capture left this list on 2026-08-12: it ran once, and its output is the
+frozen verdict set the default lane replays.
 
-CI is the one that was nearly missed, and naming it is the point of this paragraph. Listing three
-invited the reading that everything else had run. This repository has no remote and has never been
+CI is the one that was nearly missed, and naming it is the point of the list. An earlier version
+left CI off it, which invited the reading that everything else had run. This repository has no remote and has never been
 pushed, so `.github/workflows/ci.yml` has never executed; the local interpreter is 3.13, so nothing
 has been run on 3.11 by anyone. Every count below is from this machine, on this version.
 
@@ -105,7 +106,7 @@ in three different states, which is the whole reason they are listed one by one:
 | Script | Command | State |
 |---|---|---|
 | `scripts/capture_smoke.py` (P1) | none, see below | Has run. Its payloads are frozen under `fixtures/payloads/` and the script now refuses every invocation. |
-| `scripts/judge_capture.py` (P2) | `RETINUE_LIVE=1 python scripts/judge_capture.py` | Runnable. Has never run. |
+| `scripts/judge_capture.py` (P2) | `RETINUE_LIVE=1 python scripts/judge_capture.py` | Has run once (2026-08-12). Its verdicts are frozen and replayed; running it again overwrites that canon, which is a deliberate act and not a refresh. |
 | `scripts/demo.py` (P4) | `RETINUE_LIVE=1 python scripts/demo.py` | Runnable. Has never run. |
 
 **The P1 capture is frozen, and there is no command that retakes it.** `scripts/capture_smoke.py`
@@ -121,11 +122,12 @@ constructs would be evidence about a session the fleet does not run. The script 
 of how those payloads were taken. A missing payload is therefore a broken checkout, not a lane
 awaiting its turn, and the tests that read them fail rather than skip.
 
-The other two have never run, and nothing here rests on pretending otherwise. The judge capture's
-output, `fixtures/verdicts/judge_verdicts.json`, is hand-authored and marked provisional, and its
-own `meta` block states what its numbers are not. The demo's output, `captured_ask.json`, is absent,
-and `tests/boundary/test_ask_replay.py` is the one test in the suite whose subject may legitimately
-be missing: the fixture cannot be hand-authored into existence, because its provenance is the point.
+The demo has never run, and nothing here rests on pretending otherwise. Its output,
+`captured_ask.json`, is absent, and `tests/boundary/test_ask_replay.py` is the one test in the
+suite whose subject may legitimately be missing: the fixture cannot be hand-authored into
+existence, because its provenance is the point. The judge capture's output,
+`fixtures/verdicts/judge_verdicts.json`, stopped being hand-authored when its capture ran; what its
+two verdicts do and do not establish is owned by the fixture-provenance section below.
 
 ## The battery
 
@@ -274,17 +276,24 @@ configuration is not canonical whatever it happens to show.
 
 ## Fixture provenance limit
 
-Fixtures here are hand-authored, not blind-authored. **Every number this repository produces is a
-demonstration of a protocol, not a measured claim about model behaviour.** Both halves of that
-sentence are load-bearing: the first says how the fixtures were made, and the second says what
-follows, which is that no figure here may be read as an observation of a model.
+Fixtures here are hand-authored unless their own `meta` says `captured`, and the captured list is
+short: the P1 session payloads, and since 2026-08-12 the judge verdicts. **Over hand-authored
+fixtures, every number this repository produces is a demonstration of a protocol, not a measured
+claim about model behaviour.** Both halves of that sentence are load-bearing: the first says how
+those fixtures were made, and the second says what follows, which is that no figure computed over
+them may be read as an observation of a model. The gold rankings and the drafts' ground truth are
+in that class.
 
-The judge verdicts the evaluation harness replays are hand-authored and marked provisional, because
-`scripts/judge_capture.py` has never run. Their fixture says so in its own `meta`: the drafts'
-ground truth and the verdict column are one author's judgment, so agreement between them is
-arithmetic over two columns of one opinion rather than a measurement of any judge. A live capture is
-what would turn the tests that read that file into claims about a model, and it has not happened.
-Verdicts that come from a capture are frozen at version.
+The judge verdicts are the one crossing of that line, and the crossing is dated:
+`scripts/judge_capture.py` ran once on 2026-08-12, so the verdict column is a captured judge's
+answer, frozen at the library version and model id stamped in the fixture's own `meta`. The drafts
+and their ground truth are still one author's judgment. What the capture bought is stated at its
+exact size: calibration and discrimination are now a captured judge read against one author's
+labels over two cases, and the judge marked the compliant draft at confidence 0.55, under the 0.7
+floor, so the calibration figure divides by a single confident verdict. Raw agreement is two of
+two, pinned separately in the test that reads the file. A real judge inside a small protocol
+demonstration, not a measurement at scale; re-running the capture overwrites the canon, which is
+why it is manual and flag-gated.
 
 Synthetic mandate and check-size figures are invented and resemble no real firm's published ranges.
 Each fixture declares exactly one provenance in its own `meta` block, and a test enforces that,
@@ -307,7 +316,7 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Live capture smoke + payload fixtures | **Built (P1)** - `scripts/capture_smoke.py`, `fixtures/payloads/`, plus the seeded roster generator at `src/retinue/synth/rosters.py`. The capture is frozen and the script refuses every invocation (see Lanes). One gap it names itself stays unproduced: the `background`-unset half of the background evidence pair, which needs a run against a deliberately-unset definition. The "ask" fixture moved to the P4 demo, which owns it. |
 | Matching integration + ranking evaluators + OutcomeRecord | **Built (P2)** - `src/retinue/matching/integrate.py`, `src/retinue/evals/ranking.py`, `src/retinue/ledger/outcomes.py` |
 | Block-stripped control | **Built (P2)** - `src/retinue/evals/control.py` |
-| Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The replay machinery is built and green against a hand-authored, provisional verdict set; the capture that would replace it has never run. |
+| Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The capture ran once (2026-08-12); the verdict set is captured, stamped in its own meta, and replayed by the default lane. Two cases with one under the confidence floor: real-judge evidence at protocol size, not a measurement at scale. |
 | Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. The checker lane, the pre-flight surface and the review queue are reachable only through it, so they have no production caller either. |
 | Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres and has never executed anywhere. |
 | Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo is written and runnable and has never run, so `captured_ask.json` does not exist and one test skips for that reason. **That skip's cost is narrower than it looks:** the reason wording is held in the default lane over a hand-authored payload, and the parked test is the only one asserting it over a captured one. |

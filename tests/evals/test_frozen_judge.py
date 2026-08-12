@@ -6,11 +6,14 @@ froze and opens no socket. Two families of test live here, split for the reason
 held over HAND-BUILT verdicts, so a definition that drifts reddens whatever the fixture later says,
 and the fixture tests read `fixtures/` and read all of it.
 
-What the fixture tests can and cannot say is stated in their names rather than left implied. Both a
-draft's `ground_truth_violates` and a verdict's `violates` are this author's judgment, written by
-hand in one sitting, so their agreement is arithmetic over two columns of one opinion - not a
-measurement of a judge. That is precisely what a live capture buys, and until it runs the frozen
-calibration figure is an internal-consistency check wearing a calibration name.
+What the fixture tests can and cannot say is stated in their names rather than left implied. A
+draft's `ground_truth_violates` is this author's judgment; the verdict column stopped being
+hand-authored on 2026-08-12, when `scripts/judge_capture.py` ran once and left its stamp in the
+fixture's meta. Agreement is therefore a captured judge read against one author's labels rather
+than two columns of one opinion - over two cases, one of which sits under the confidence floor, so
+each test below names exactly the claim its number can carry. A real judge inside a small protocol
+demonstration is still not a measurement at scale, and the README's fixture-provenance section owns
+that sentence.
 """
 import json
 import pathlib
@@ -84,26 +87,34 @@ def test_every_draft_is_judged_and_nothing_else():
     """
     assert set(load_verdicts(VERDICTS)) == set(truth())
 
-def test_calibration_over_the_frozen_set_is_perfect_by_construction():
-    """1.0, and the name carries why that number is not yet evidence about a judge.
+def test_calibration_over_the_captured_set_is_one_over_one_confident_verdict():
+    """1.0, with the denominator in the name so the number cannot pose as scale.
 
-    `ground_truth_violates` in `fixtures/drafts/` and `violates` in `fixtures/verdicts/` are both
-    hand-authored by one author in one sitting, so agreement between them is arithmetic over two
-    columns of the same opinion. No code mutation can turn this 1.0 into evidence about a judge,
-    because both columns are one author's - but a mutation of the agreement comparison itself still
-    reddens it, which is all this test can claim today. An earlier draft of this docstring said it
-    could not fall to any code change at all, which was false and contradicted its own next sentence.
+    This test was named `..._is_perfect_by_construction` while both columns were one author's, and
+    that premise ended on 2026-08-12: the verdict column is captured now, so the 1.0 is a judge
+    agreeing with the author's labels rather than the author agreeing with themselves. It is also
+    narrower than it looks, which is the reason the denominator is pinned rather than narrated: the
+    captured judge marked the compliant draft `violates=False` at confidence 0.55, under the 0.7
+    floor, so the calibration figure divides by the ONE confident verdict. Raw agreement is 2 of 2
+    and is pinned separately, because "the judge agreed on both" and "the floored figure is 1.0"
+    are different claims and only their pair says what happened.
 
-    What it does hold is that the two files stay consistent with each other and that the comparison
-    drawn between them is the right one: edit one column, or invert the comparison, and this reddens.
+    Edit either column, move the floor, or invert the comparison, and something here reddens. A
+    re-capture that moves the verdicts reddens this too, deliberately: the canon is frozen, and
+    replacing it is an event the suite must surface rather than absorb.
     """
-    assert calibration_agreement(load_verdicts(VERDICTS), truth(), floor=0.7) == 1.0
+    v = load_verdicts(VERDICTS)
+    assert all(v[case].violates == expected for case, expected in truth().items())
+    assert [x.case for x in v.values() if x.confidence >= 0.7] == ["violating_01"]
+    assert calibration_agreement(v, truth(), floor=0.7) == 1.0
 
 def test_discrimination_over_the_frozen_set_ranks_the_violating_draft_below():
-    """Positive: the violating draft's quality sits below the compliant one's.
+    """Positive: the captured judge put the violating draft's quality below the compliant one's.
 
-    Hand-authored on both sides like the calibration figure above, so this restates the fixture's
-    own ordering rather than a scorer's. A capture is what turns it into a claim about a scorer.
+    The verdict side is captured (2026-08-12); the drafts and their ground truth are still one
+    author's. So the ordering is a real scorer's, frozen and replayed - over exactly one draft per
+    side, which is why the assertion stays directional rather than pinning the gap's width. The
+    width is float arithmetic over two numbers; the direction is the claim.
     """
     assert discrimination_gap(load_verdicts(VERDICTS), truth()) > 0.0
 
