@@ -68,7 +68,7 @@ install with its dev extra. Python >=3.11.
 ## The three lanes
 
 **Default lane** - `python -m pytest`. No daemon, no network, no key, on a fresh clone. At this
-commit: 241 passed, 8 skipped, all 8 for the Postgres lane below. No second `-q`: `pyproject.toml`'s
+commit: 241 passed, 9 skipped, all 9 for the Postgres lane below. No second `-q`: `pyproject.toml`'s
 `addopts` already carries one, and `-qq` deletes the summary line that both CI and the battery
 read. The lane holds the options-shape tests, the hook callback replayed against captured payloads,
 the specialist tests under pydantic-ai's own offline doubles, the ledger contract tests against an
@@ -82,10 +82,17 @@ about a version no one has executed this suite on.
 
 **Postgres lane** - keyed on `RETINUE_PG_DSN`. Unset, it skips with a printed reason. Set, the same
 contract tests run against real Postgres alongside the enforcement tests only a real database can
-earn, four tests holding five claims: the append-only trigger, the plan assertion that the
-projection's hot query uses the named index, the durable review-queue sink, and one test that holds
-the unique idempotency key and concurrent append together, because exactly-one-wins under
-concurrency is the uniqueness claim under load.
+earn, five tests: the append-only trigger, the plan assertion that the projection's hot query
+reaches the named index, a separate one that its ORDER BY rides that index rather than a Sort, the
+durable review-queue sink, and one test holding the unique idempotency key and concurrent append
+together, because exactly-one-wins under concurrency is the uniqueness claim under load.
+
+Those two plan assertions were one test until this lane's first execution, which is the whole
+argument for running a lane rather than reading it. It reddened on the Sort clause while its own
+name's properties held: the named index was reached and there was no Seq Scan, but at roughly
+twenty-five rows per investor the planner chose a bitmap scan and re-sorted. A planner choice at
+toy scale, not a broken index. The ordering claim now has its own test at its own size, and the
+first run's plan is pinned in the docstring as the finding it was.
 `RETINUE_PG_REQUIRED=1` turns a skip into a failure, which is the negative control that keeps the
 lane from being vacuous.
 
