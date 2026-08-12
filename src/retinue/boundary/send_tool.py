@@ -29,12 +29,23 @@ the row was dropped.** Narrowing it back to any one of them reopens the other tw
 - a store that RAISES instead of answering, the Postgres lane's shape, which used to leave by a
   different door entirely, propagating out after the act with nothing escalated.
 
-Prevention is not available here and detection is. `TouchpointStore` offers `touchpoints_for` and
-no lookup by key, so the chokepoint cannot see another investor's row to refuse against, and the
-act cannot be un-sent once `execute` has returned in any case. What is available is that an
-unrecorded act is NEVER REPORTED AS A CLEAN ALLOW AND NEVER SILENT. Left unread, the failure was
-unbounded rather than off by one: no row is written, so the guard finds none on the next attempt
-either, and the key becomes a reusable, unmetered send licence. Two acts, no meter, measured.
+**Prevention is available and is refused, and the reason is not that the store lacks an API.** An
+earlier revision argued that, and it is defeasible in one step: `append`'s boolean is ALREADY a
+key-global test-and-set, so claiming the key before the act needs no new store method at all, and
+claiming first would refuse the cross-kind and cross-investor paths before the message leaves.
+
+The reason is that a claim row could never be resolved. The store is append-only with no update
+(`INSERT ... ON CONFLICT DO NOTHING` and nothing else), the key is globally unique, and
+`DeliveryStatus` has no pending member. Measured: append a claim row, then append the same key
+carrying `CONFIRMED`, and the second call returns False with the stored row still at
+`delivery_status=None`. Claim-first would therefore trade the tri-state away for prevention on two
+of four paths, and the tri-state is the thing that keeps an unconfirmable send from being guessed
+CONFIRMED. It is also TOCTOU-racy, and it cannot reach the raising-store path at all.
+
+So detection, and the guarantee is that an unrecorded act is NEVER REPORTED AS A CLEAN ALLOW AND
+NEVER SILENT. Left unread, the failure was unbounded rather than off by one: no row is written, so
+the guard finds none on the next attempt either, and the key becomes a reusable, unmetered send
+licence. Two acts, no meter, measured.
 
 **Why an unrecorded act comes back as a distinct TYPE and not as a raise.** A raise after an
 irreversible act is design spec 3.4's named trap aimed at the worst possible target: a
@@ -44,10 +55,24 @@ finds no `sent` row FOR EXACTLY THE REASON WE ARE HERE and the message goes out 
 cost of a raise is therefore a duplicate message to an investor, where the cost of a silent allow
 is only a miscounted cap. `UnrecordedSend` is neither. It carries no `allowed` attribute, and that
 is deliberate: `True` is the state being distinguished from, `False` would say nothing was sent and
-invite the same re-send, and neither is honest about a call the gate allowed and the ledger lost. A
-caller duck-typing `.allowed` gets an AttributeError at its own call site rather than a plausible
-boolean, and loud beats plausible when the alternative is a message sent twice. `None` was not
-available for it either: that already means denied at the pre-check with the engine never run.
+invite the same re-send, and neither is honest about a call the gate allowed and the ledger lost.
+`None` was not available for it either: that already means denied at the pre-check with the engine
+never run.
+
+**What the type buys is that every duplicate is escalated, and it does NOT buy "never sent
+twice".** `out.allowed` raises loudly, as designed. The defensive idiom `getattr(out, "allowed",
+False)` does not: it answers False, which reads as a denial and drives a retry loop. Measured, a
+caller retrying on that falsy answer makes three tool calls, writes zero rows, and files THREE
+escalations. Nothing here runs a type checker either, so the return union is enforced by no tool.
+The guarantee that survives all of that is the one worth stating: no duplicate is silent, and a
+human holds one work item per act. That is what this type earns.
+
+**No "already escalated" marker on the type, deliberately.** Every `UnrecordedSend` is constructed
+one line after the `put` that files its escalation, and there is no path that builds one without
+filing, so such a field would be a constant True, and a field that is always True is a field a
+later reader eventually sets to False. A conscientious caller filing a second escalation costs a
+duplicate work item carrying the same class and the same body, which a human resolves; the failure
+this module is built against is the missing one, which nobody can.
 
 **`Gateway.log_torn` is read here by nobody, and that is a decision rather than an oversight.**
 The imported gateway surfaces it and says why: the send cap counts intents, a tear may have taken
@@ -138,22 +163,36 @@ def attempt_send(*, key: str, draft: Draft, record: Record, context: ActContext 
     result = guarded_call(gateway, SEND_TOOL, {"body": draft.body}, draft, record,
                           context, checker, registry, queues=queues)
     if result.allowed:
-        confirmed = confirm(result.value)
-        status = ("CONFIRMED" if confirmed is True
-                  else "FAILED" if confirmed is False else "UNVERIFIABLE")
+        # Bound BEFORE the guarded region, to the state that is true when nothing has answered.
+        # This is the answer and not a placeholder: `confirm` is a transport round-trip and one
+        # that raises IS the definition of an unconfirmable send, so the delivery state it leaves
+        # behind is exactly the one the tri-state already has a name for.
+        status = "UNVERIFIABLE"
+        # `confirm` is INSIDE, and it is here rather than one line above because it was one line
+        # above: a raising `confirm` left the act done, no row written, nothing escalated and
+        # nothing queued, which is path three's shape sitting immediately in front of path three's
+        # repair. The guarded region is drawn around every step between the act and the recorded
+        # row, so no step can be added between them that is outside it.
+        #
         # `Exception` and not `BaseException`, matching boundary/hook.py: a cancellation or a
-        # SystemExit must still propagate. Everything narrower would have to enumerate the ways a
-        # store can fail, and the whole point of this branch is that it does not care which one.
-        # The row is BUILT inside the try as well, so a payload pydantic refuses is the same event
-        # as a store that will not take it: either way the act happened and the ledger has no row.
+        # SystemExit must still propagate. Anything narrower would enumerate the ways recording can
+        # fail, and the whole point of this branch is that it does not care which one. The row is
+        # BUILT inside as well, so a payload pydantic refuses is the same event as a store that
+        # will not take it: either way the act happened and the ledger has no row.
         try:
+            confirmed = confirm(result.value)
+            status = ("CONFIRMED" if confirmed is True
+                      else "FAILED" if confirmed is False else "UNVERIFIABLE")
             recorded = store.append(Touchpoint(
                 idempotency_key=key, investor_id=investor_id, mandate_id=mandate_id, kind="sent",
                 payload={"body_bytes": len(draft.body.encode())},
                 occurred_at=occurred_at, recorded_at=recorded_at, delivery_status=status))
             dropped = None if recorded else f"the ledger already holds the key {key!r}"
         except Exception as exc:
-            dropped = f"the store raised {type(exc).__name__}: {exc}"
+            # Names the STAGE, not an actor. "the store raised" was wrong for two of the three
+            # things this catches: a confirmation round-trip and a row pydantic refuses both reach
+            # a human reviewer before the store is touched at all.
+            dropped = f"recording the act for key {key!r} raised {type(exc).__name__}: {exc}"
         if status == "UNVERIFIABLE":
             queues.put(REVIEW_QUEUE, _boundary_handoff(draft, DELIVERY_UNVERIFIABLE, None))
         if dropped is not None:

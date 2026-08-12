@@ -25,8 +25,9 @@ from chaperone.policy.types import Disposition, Draft, Message, Record, Violatio
 from retinue.boundary.checker_lane import build_checker, scripted_transport
 from retinue.boundary.hook import SEND_TOOL
 from retinue.boundary.review_queue import DurableQueues, memory_sink
-from retinue.boundary.send_tool import (PROJECTION_UNAVAILABLE, REVIEW_QUEUE, SEND_UNRECORDED,
-                                        InvalidSend, TerminalSend, UnrecordedSend, attempt_send)
+from retinue.boundary.send_tool import (DELIVERY_UNVERIFIABLE, PROJECTION_UNAVAILABLE,
+                                        REVIEW_QUEUE, SEND_UNRECORDED, InvalidSend, TerminalSend,
+                                        UnrecordedSend, attempt_send)
 from retinue.ledger.models import StoreUnavailable, Touchpoint
 from retinue.ledger.store import InMemoryStore
 
@@ -354,6 +355,94 @@ def test_a_key_held_by_another_investor_is_not_reported_as_a_clean_allow(tmp_pat
     assert out.result.allowed                            # a message reached a second investor
     assert kw["store"].touchpoints_for("inv-1") == ()    # and left no trace in that ledger
     assert [r for r in rows if r[1]["reason_category"] == SEND_UNRECORDED]
+
+def test_a_confirmation_that_raises_is_not_reported_as_a_clean_allow(tmp_path):
+    """Path four, and it sat ONE LINE ABOVE the repair that closed path three.
+
+    `confirm` is a transport round-trip made after the engine returned an allow, and it was outside
+    the guarded region. Measured before the repair: the act happened, the exception propagated out
+    of `attempt_send`, and there were zero ledger rows, zero escalations and zero queue rows of any
+    kind. The module docstring added in the previous round asserts that an unrecorded act is never
+    silent, and this path falsified it.
+
+    Both escalations, because both facts are true of this send. A confirmation that raises IS the
+    definition of unconfirmable, so the delivery state is UNVERIFIABLE and says so; and the act was
+    never recorded, so it is unrecorded and says that too.
+    """
+    kw, rows = harness(tmp_path)
+
+    def boom(value):
+        raise TimeoutError("the delivery receipt never came back")
+
+    out = attempt_send(key="k20", draft=draft(), record=Record(fields={}),
+                       context=ctx(), confirm=boom, **kw)
+    assert isinstance(out, UnrecordedSend)
+    assert out.result.allowed and out.result.value == "handle-1"    # the act DID happen
+    assert "TimeoutError" in out.reason
+    # The reviewer-facing text names the STAGE, never an actor it did not reach. This exception is
+    # raised by the confirmation round-trip, before the store is touched at all, and reporting it
+    # as a store failure sends whoever reads the queue row to the wrong system.
+    assert "store" not in out.reason
+    assert kw["store"].touchpoints_for("inv-1") == ()
+    assert {r[1]["reason_category"] for r in rows} == {DELIVERY_UNVERIFIABLE, SEND_UNRECORDED}
+
+def test_an_unrecorded_send_names_its_reason_and_escalates_beside_the_delivery_row(tmp_path):
+    """Two distinguishers the pre-check path pins and this path did not.
+
+    Setting `detector_outage` to None on THIS escalation reddened nothing, while the identical
+    mutation on the pre-check path is a red matrix row. The asymmetry is the finding: a reviewer
+    holding a row needs to know why it exists, and `reason_category` alone says an act went
+    unrecorded without saying what dropped it. The key is in the text, because a reviewer holding
+    one row of many needs to know WHICH act.
+
+    The second is that both escalations fire when both are true. Suppressing the UNVERIFIABLE one
+    whenever the row was also dropped reddened nothing either, and they are different facts about
+    one send: what the delivery did, and whether the ledger knows it happened.
+    """
+    kw, rows = harness(tmp_path)
+    kw["store"].append(Touchpoint(idempotency_key="k19", investor_id="inv-1", mandate_id="m-1",
+                                  kind="contact", payload={}, occurred_at=T0, recorded_at=T0))
+    out = attempt_send(key="k19", draft=draft(), record=Record(fields={}),
+                       context=ctx(), confirm=lambda v: None, **kw)
+    assert isinstance(out, UnrecordedSend)
+    assert {r[1]["reason_category"] for r in rows} == {DELIVERY_UNVERIFIABLE, SEND_UNRECORDED}
+    unrecorded = next(r[1] for r in rows if r[1]["reason_category"] == SEND_UNRECORDED)
+    assert unrecorded["detector_outage"] and "k19" in unrecorded["detector_outage"]
+
+def test_no_category_this_module_routes_is_a_policy_class(tmp_path):
+    """Every category this module puts in a queue, EXERCISED rather than named.
+
+    `SEND_UNRECORDED` was added a round after `test_the_boundary_class_is_no_policy_class_at_all`
+    pinned its sibling, and it slipped in precisely the way that sibling had: every test reading it
+    compares `payload["reason_category"]` against the imported constant, so both sides of the
+    comparison move together and renaming it to `content:negotiates_terms` reddened nothing. That
+    is how the defect recurs - a per-constant test has to be remembered on the day a constant is
+    added, and it was not.
+
+    So this reads what actually LANDED in the queue, across every boundary escalation path the
+    module has. A path added later joins by being exercised rather than by being remembered.
+
+    The count is asserted as well as the disjointness. Without it, a path that quietly stopped
+    escalating would shrink the set, and an emptier set satisfies disjointness more easily: the
+    test would get greener as the module got worse.
+    """
+    policy = {member.value for member in ViolationClass}
+    kw_a, rows_a = harness(tmp_path)                      # the boundary pre-check
+    attempt_send(key="c1", draft=draft(), record=Record(fields={}),
+                 context=None, confirm=lambda v: True, **kw_a)
+    kw_b, rows_b = harness(tmp_path)                      # an unconfirmable delivery
+    attempt_send(key="c2", draft=draft(), record=Record(fields={}),
+                 context=ctx(), confirm=lambda v: None, **kw_b)
+    kw_c, rows_c = harness(tmp_path)                      # an act the ledger did not record
+    kw_c["store"].append(Touchpoint(idempotency_key="c3", investor_id="inv-1", mandate_id="m-1",
+                                    kind="contact", payload={}, occurred_at=T0, recorded_at=T0))
+    attempt_send(key="c3", draft=draft(), record=Record(fields={}),
+                 context=ctx(), confirm=lambda v: True, **kw_c)
+
+    routed = {r[1]["reason_category"] for r in rows_a + rows_b + rows_c}
+    assert len(routed) == 3, f"a boundary escalation path stopped routing: {sorted(routed)}"
+    assert not routed & policy, f"a boundary class wears a policy category: {sorted(routed & policy)}"
+    assert all(category.startswith("boundary:") for category in routed)
 
 def test_a_store_that_raises_after_the_act_is_not_reported_as_a_clean_allow(tmp_path):
     """Path three: same call site, same event, and it used to leave by a different door.
