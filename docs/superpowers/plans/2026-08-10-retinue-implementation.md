@@ -3919,10 +3919,23 @@ def test_the_send_tool_survives_the_session_intersection():
   **AMENDED 2026-08-11: this step named an arm that is itself inert.** It said to use
   `"" + CONVERSATION_PROMPT`. CPython folds that at compile time, so it is the SAME OBJECT, the
   parity test stays green, and the named proof would have been recorded as a demonstration while
-  demonstrating nothing. Four of eight obvious spellings of "equal but not identical" are
-  identity-preserving, so pick one and MEASURE that `is` is False before recording the row rather
-  than reasoning about which spelling copies. Checked when this was written: this is the only
-  inertness arm in the plan that does not mutate a code path, so it is a member and not a class.
+  demonstrating nothing.
+
+  Measured on this interpreter, because guessing which spelling copies is how the arm got here:
+
+  ```
+  "" + p        is p    True
+  p + ""        is p    True
+  p[:]          is p    True
+  str(p)        is p    True
+  "".join([p])  is p    True
+  (p + "x")[:-1] is p   False
+  ```
+
+  Five of the six obvious spellings preserve identity. So: pick one and **assert `is` is False in
+  the row itself** before recording it, rather than reasoning about which spelling copies. Checked
+  when this was written: this is the only inertness arm in the plan that does not mutate a code
+  path, so it is a member and not a class.
 
 ```bash
 git add src/retinue/specialists/conversation.py src/retinue/orchestration/topology.py tests/specialists/test_conversation.py
