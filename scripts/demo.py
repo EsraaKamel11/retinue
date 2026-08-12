@@ -215,8 +215,15 @@ async def main() -> int:
     print(f"captured {len(captured)} hook payloads; {len(asks)} are conversation sends; "
           f"the tool body was reached {len(reached)} times")
     if not asks:
-        print("the send tool was offered and never called, so there is no ask to capture.",
-              file=sys.stderr)
+        # The sentence names what was measured and nothing wider. `asks` counts CONVERSATION sends,
+        # so an empty `asks` says the conversation lane made none - it does NOT say the tool went
+        # uncalled, because the widened ceiling makes a main-thread call reachable and `reached`
+        # may be non-empty on exactly this branch. An earlier version of this line said "offered
+        # and never called", which is a containment claim resting on a count that was not taken,
+        # in a script whose whole thesis is that containment is never demonstrated by absence.
+        print(f"the send tool was offered; the conversation lane made no send. The tool body was "
+              f"reached {len(reached)} times, which this run does not attribute to a lane. "
+              "There is no ask to capture.", file=sys.stderr)
         _dump("no conversation send", captured)
         return 2
     _write(OUT, asks[0], stamp)

@@ -212,6 +212,15 @@ def _init_findings(init: dict) -> list[str]:
     # is set at all. So for the one payload this rule judges, a resolved `mcp__` send tool would mean
     # that guard was bypassed, which is a real finding and not a false one.
     #
+    # THAT GUARD IS NOW UNCONDITIONAL, and this comment described it in the present tense as
+    # conditional. Task 22 put the send names in `SESSION_TOOLS`, so `build_options` always names
+    # them and the smoke SystemExits on every invocation: `not a send-free session`. The rule above
+    # is still sound - it reads a file that already exists and was captured before that change - but
+    # a reader taking the conditional phrasing at face value would believe a fresh P1 capture is one
+    # command away. It is not, until someone decides how a send-free capture is taken from a session
+    # whose ceiling now offers the tool. Booked into Task 24 with the three tracked strings that
+    # still point a reader at that command.
+    #
     # What keeps it that way is that `scripts/demo.py` writes ONE path, `captured_ask.json`, and
     # never `captured_init.json` - it does not overwrite the send-free capture with a send-bearing
     # one. Excepting `SEND_TOOLS` here would have bought nothing and cost the rule its edge on the

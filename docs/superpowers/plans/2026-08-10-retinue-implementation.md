@@ -4121,6 +4121,31 @@ git commit -m "feat: the P4 demo"
   `approve` still applies. Whether that closes the hole is unverified in either direction. If it is
   not settled by a run before this task, it is a named gap, which is the house rule anyway.
 
+- [ ] **Step 1b-pre: The P1 capture smoke cannot run, and three tracked strings still tell a reader
+  to run it. BOOKED 2026-08-11, found by Task 23, caused by Task 22.** `scripts/capture_smoke.py`
+  calls `_refuse_if_a_send_tool_exists(build_options(...))`, which now `SystemExit`s on every
+  invocation, because Task 22 put the send names in `SESSION_TOOLS`:
+
+  ```
+  SystemExit: not a send-free session: tools=['mcp__retinue__send_message','send_message'], mcp_servers={}
+  ```
+
+  Task 22's suite stayed green because nothing exercises that script, and Task 23 found it while
+  answering a different question. **The lane is not broken so much as unreachable by that command**,
+  and the three strings that still point at it must not survive a README pass that flips rows above
+  them:
+
+  - `README.md:59`, the Live lane line.
+  - `tests/test_fixture_meta.py:26`'s `SMOKE` constant, which is emitted into **two** skip reasons as
+    "produce it with:".
+
+  Do not paper this over by deleting the strings. Decide, and write down which: either the smoke
+  gains a way to build send-free options for a capture (the guard is right and the roster is right,
+  so the missing piece is that the capture needs its own options shape), or the P1 capture is
+  declared frozen at the payloads already in `fixtures/payloads/` and the strings say so. The second
+  is honest and cheap; the first is better if the capture is ever to be retaken. **A README that
+  documents a lane nobody can execute is the exact failure this task exists to prevent.**
+
 - [ ] **Step 1a: Make the battery say what it did not scan.** It scans `git ls-files`, so an
   untracked file is invisible to every gate while all of them still print ok - verified during
   Task 12 by dropping an untracked file containing a stale model id into the tree and watching
