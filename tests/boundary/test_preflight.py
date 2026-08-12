@@ -113,6 +113,25 @@ def routes_to_human(p):
     return not p.outcome.allow
 '''
 
+PLANTED_DECORATOR = '''
+def _gate(fn):
+    return fn
+
+@_gate
+def routes_to_human(p):
+    if p.outcome is None:
+        return True
+    return not p.outcome.allow
+'''
+
+PLANTED_ANNOTATE_READ = '''
+def annotate(draft, record, context, checker):
+    outcome = pre_tool_use(SEND_TOOL, {"body": draft.body}, (draft, record, context, checker))
+    if outcome.payload and outcome.payload.get("confidence"):
+        return Preflight(None, "the checker was unsure")
+    return Preflight(outcome, None)
+'''
+
 def reachable_reads(source: str, entry: str) -> frozenset[str]:
     """Every name the code reachable from `entry` could read a field by.
 
@@ -122,6 +141,10 @@ def reachable_reads(source: str, entry: str) -> frozenset[str]:
     and `getattr(p.outcome, "conf" + "idence")` names no matching constant either, so both are
     caught by the arrival of `getattr` itself. Calls into module-level functions are followed, so a
     read moved one line out into a helper is still counted.
+
+    Decorators are walked with the body rather than skipped, because a decorator is the helper
+    escape one line higher up: it never appears inside the function it wraps, and a wrapper that
+    consults the payload and returns early decides the routing just as much as the body does.
 
     Docstrings and bare string statements are dropped, and comments never enter an AST at all, so
     prose is free. That is the trade this census makes against a text search, and it is the trade
@@ -146,7 +169,7 @@ def reachable_reads(source: str, entry: str) -> frozenset[str]:
         if name in visited:
             continue
         visited.add(name)
-        for statement in funcs[name].body:
+        for statement in funcs[name].decorator_list + funcs[name].body:
             for node in ast.walk(statement):
                 if isinstance(node, ast.Attribute):
                     reads.add(node.attr)
@@ -189,11 +212,30 @@ def test_a_renamed_self_rating_is_caught_where_a_text_search_would_miss_it():
     assert {"payload", "certainty"} <= reads               # the census does not
     assert reads != ROUTING_READS                          # so the pin reddens
 
+def test_a_self_rating_read_on_the_annotation_path_differs_from_the_expected_census():
+    """`ANNOTATE_READS` in the must-DIFFER direction, which is what stops one edit from disarming
+    it. Used only by the pin above, it could be widened in the same commit that adds the read it
+    was meant to refuse, and nothing would redden - the state where the pin still exists and
+    refuses nothing. `ROUTING_READS` is held by two tests facing opposite ways; this is the
+    matching second face for the annotation path.
+    """
+    reads = reachable_reads(PLANTED_ANNOTATE_READ, "annotate")
+    assert {"payload", "get", "confidence"} <= reads
+    assert reads != ANNOTATE_READS
+
 def test_a_read_moved_into_a_helper_is_still_counted():
     """Routing that calls one line out into a helper is still routing. Calls into module-level
     functions are followed, or the pin would be one refactor away from measuring an empty body.
     """
     assert "confidence" in reachable_reads(PLANTED_HELPER, "routes_to_human")
+
+def test_a_decorator_wrapping_the_routing_is_censused():
+    """A decorator is the same escape as the helper, one line higher up. It never appears in the
+    function's body, so a census reading `body` alone is blind to a wrapper that consults the
+    payload and returns early - and the wrapper decides the routing just as much as the body does.
+    """
+    reads = reachable_reads(PLANTED_DECORATOR, "routes_to_human")
+    assert "_gate" in reads and reads != ROUTING_READS
 
 def test_a_docstring_naming_the_field_is_not_a_read():
     """The payoff, and the whole reason the pin is not a text search: the module is free to say
