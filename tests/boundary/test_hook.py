@@ -1,7 +1,7 @@
 import asyncio, json
 from pathlib import Path
 import pytest
-from retinue.boundary.hook import SEND_TOOL, decide, pre_tool_use
+from retinue.boundary.hook import SEND_TOOL, SEND_TOOLS, decide, pre_tool_use
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "payloads"
 
@@ -31,6 +31,51 @@ def test_decision_table_is_total():
     assert decide("conversation", SEND_TOOL) == "ask"
     assert decide("conversation", "Read") == "allow"           # non-send conversation tool
     assert decide("mystery", "Read") == "ask"                  # unknown fails toward the human
+
+def test_conversation_is_asked_on_every_spelling_of_the_send_tool():
+    """Both members of `SEND_TOOLS`, because Task 22 is what made the second one reachable.
+
+    Until the conversation roster and the session ceiling gained these names, no send tool of any
+    spelling resolved into any session, so `decide`'s conversation arm was pinned on the bare name
+    alone and the `mcp__` spelling was carried as data nothing exercised. Narrowing that arm to
+    `tool_name == SEND_TOOL` - which reads like a tidy-up, since the constant is right there -
+    would leave the offered tool ungated and every other test in this file green.
+
+    The shape is pinned before the loop runs, because a loop over a set is greenest when the set is
+    empty: `SEND_TOOLS` emptied or collapsed to one name makes the assertions below vacuous, which
+    is the failure mode of a test that reads the same constant the code under test reads.
+    """
+    assert len(SEND_TOOLS) == 2 and any(t.startswith("mcp__") for t in SEND_TOOLS)
+    p = load("provisional_send.json")
+    for name in sorted(SEND_TOOLS):
+        assert decide("conversation", name) == "ask", name
+        out = asyncio.run(pre_tool_use({**p, "tool_name": name}, None, None))
+        assert out["hookSpecificOutput"]["permissionDecision"] == "ask", name
+
+def test_the_main_thread_reaches_the_deny_lane_on_every_spelling():
+    """The reach Task 22 widened, gated by the other door.
+
+    The session ceiling is the orchestrator's bound too, so putting the send names there let the
+    MAIN THREAD reach a send tool where before it none existed anywhere in the session. That is a
+    real widening and it is stated rather than waved at: `decide` answers "allow" for a main-thread
+    call, and the allow arm puts every send payload INTO the imported deterministic lane rather
+    than past it. Ask for the subagent, the lane for the main thread, and neither is a send.
+
+    THIS PAYLOAD, not every payload, and the distinction is the test's whole scope. The imported
+    lane answers `{}` to allow and a deny dict to refuse, so a denial is a property of what was
+    submitted; what generalises is that the main thread cannot skip the lane, and a payload the
+    lane allowed would still meet the chokepoint inside the send tool body. The fixture used here
+    is the one the showcase test at the foot of this file already relies on for a refusal.
+
+    The REASON is deliberately not asserted, unlike that showcase test. The two spellings refuse on
+    two different primary findings, because the fixture's grant names one of them - which is a
+    property of that fixture rather than of the router.
+    """
+    p = load("provisional_send.json")
+    p.pop("agent_type")
+    for name in sorted(SEND_TOOLS):
+        out = asyncio.run(pre_tool_use({**p, "tool_name": name}, None, None))
+        assert out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny", name
 
 def test_outward_send_returns_ask_shape():
     out = asyncio.run(pre_tool_use(load("provisional_send.json"), None, None))

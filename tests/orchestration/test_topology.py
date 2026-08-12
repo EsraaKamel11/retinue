@@ -49,8 +49,16 @@ def test_the_session_roster_drops_every_write_and_outbound_capability():
     #     widener went to the trouble of restating in both places.
     # The cost is a second line to edit whenever the ceiling legitimately changes, at Task 22 among
     # others. That is the control working, not friction to design away.
+    #
+    # Task 22 is that legitimate change, and the two send names below are RESPELLED rather than
+    # imported from `SEND_TOOLS` on purpose. Writing `*sorted(SEND_TOOLS)` here would restore
+    # exactly the defect the double entry exists against: both sides would move together, and a
+    # ceiling widened from the constant's own home would sail through the line that is supposed to
+    # object. The audit's single-home rule reads `src/retinue` only, so a test file may spell the
+    # literal - `tests/test_fleet_audit.py` already does, for the same reason.
     assert opts.tools == list(SESSION_TOOLS)
-    assert list(SESSION_TOOLS) == ["Agent", "Task", "Read", "Grep", "Glob"]
+    assert list(SESSION_TOOLS) == ["Agent", "Task", "Read", "Grep", "Glob",
+                                   "mcp__retinue__send_message", "send_message"]
     assert not ({"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & set(opts.tools))
 
 def test_the_session_roster_covers_every_declared_agent_roster():
@@ -64,6 +72,24 @@ def test_the_session_roster_covers_every_declared_agent_roster():
     starved = {name: sorted(set(d.tools or ()) - set(opts.tools)) for name, d in AGENTS.items()}
     starved = {name: missing for name, missing in starved.items() if missing}
     assert not starved, f"declared but absent from the session roster: {starved}"
+
+def test_widening_the_ceiling_offers_no_send_tool_to_research_or_drafting():
+    """A maximum is not a grant, asserted on the RESOLVED roster rather than on the declaration.
+
+    Task 22 put the send names into the ceiling, and the sentence justifying that says per-agent
+    bounds still hold. This is that sentence as a check. It reads the same intersection the CLI
+    performs, so it speaks to what these two specialists are actually offered and not to what the
+    table says: a send name added to either declaration now survives the ceiling, where before
+    Task 22 the ceiling would have swallowed it and this file would have said nothing.
+
+    Named rather than derived from `AGENTS`, and that is the point of the test: iterating every
+    agent except the one whose name is excluded would keep passing if a fourth specialist were
+    added with a send tool and no thought given to it.
+    """
+    from retinue.boundary.hook import SEND_TOOLS
+    for name in ("research", "drafting"):
+        resolved = {t for t in (AGENTS[name].tools or ()) if t in SESSION_TOOLS}
+        assert not (resolved & set(SEND_TOOLS)), f"{name} is offered {sorted(resolved)}"
 
 def test_tiers_use_the_imported_vocabulary_exactly():
     from chaperone.gates.checker import MODEL_STRENGTH

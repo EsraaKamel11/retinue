@@ -4,6 +4,8 @@ checker-ordering guarantee reads straight off this table."""
 from __future__ import annotations
 from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 from claude_agent_sdk.types import AgentDefinition
+from retinue.boundary.hook import SEND_TOOLS
+from retinue.specialists.conversation import CONVERSATION_PROMPT
 from retinue.specialists.drafting import DRAFTING_PROMPT
 from retinue.specialists.research import RESEARCH_PROMPT
 
@@ -25,11 +27,14 @@ AGENTS: dict[str, AgentDefinition] = {
         description="Drafts outreach from the relationship record. Output goes to review.",
         prompt=DRAFTING_PROMPT,     # parity: the SAME constant object the pydantic-ai agent uses
         tools=["Read"], background=False),
-    # the conversation prompt is a PROVISIONAL inline string until its module lands
-    # (Task 22 moves it into a shared constant and adds its parity test).
     "conversation": AgentDefinition(
         description="Carries investor conversation; sends are gated.",
-        prompt="Converse; sending is gated.", tools=["Read"], background=False),
+        prompt=CONVERSATION_PROMPT,  # parity: the SAME constant object the pydantic-ai agent uses
+        # The one roster that names the send tool, and it names it by IMPORT: the literal has a
+        # single home in boundary/, which is the audit's `send_tool_single_home` rule. Both
+        # spellings, because which one the runtime binds is a property of how the tool is served
+        # and not of this table. Declaring it is only half of offering it - see SESSION_TOOLS.
+        tools=["Read", *sorted(SEND_TOOLS)], background=False),
 }
 
 #: The SESSION roster. The CLI resolves each subagent's declared tools by INTERSECTING them
@@ -42,7 +47,29 @@ AGENTS: dict[str, AgentDefinition] = {
 #: proposes. Per-agent bounds live in each AgentDefinition. This ceiling is the ORCHESTRATOR's
 #: bound too, because `allowed_tools` pre-approves and restricts nothing: the same payload shows
 #: Glob, Grep and Read resolved into the session while the allow-list held only the spawn names.
-SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob")
+#:
+#: THE SEND NAMES ARE HERE BECAUSE DECLARING A TOOL IS NOT OFFERING IT. The intersection above is
+#: the whole reason: a send tool named in conversation's roster and absent from this tuple resolves
+#: to `["Read"]` and is stripped, while every options-shape assertion stays green. Imported for the
+#: same reason the roster is, so the literal keeps its single home.
+#:
+#: What this widening does NOT do, stated as three separate claims because they are checked
+#: separately. Per-agent bounds still apply, so research and drafting declare no send tool and are
+#: offered none: the ceiling is a maximum and never a grant. The hook still answers `"ask"` for
+#: conversation on exactly these names, both spellings. And what it DOES do, which the paragraph
+#: above this one already says and which a comment claiming "nothing changes" would bury: this
+#: tuple is the ORCHESTRATOR's bound too, so the main thread can now reach a send tool where before
+#: this line no send tool existed anywhere in the session.
+#:
+#: That reach is ROUTED rather than waved through, and the verb is narrow on purpose. `decide`
+#: answers "allow" for a main-thread call, which puts the payload INTO the imported deterministic
+#: lane rather than past it. That lane answers `{}` to allow and a deny dict to refuse, so "the
+#: lane denies" is a property of a payload and never of the lane: the one payload measured here
+#: refuses on both spellings, and an earlier version of this comment stated the general form of
+#: that measurement, which is the overclaim this repository keeps having to walk back. A payload
+#: the lane allowed would still meet the chokepoint inside the send tool body, which is where the
+#: checker runs and where the act is executed or not.
+SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob", *sorted(SEND_TOOLS))
 
 def build_options(hook) -> ClaudeAgentOptions:
     # `tools` is the session roster; `allowed_tools` is the auto-approve list. Both are set:
