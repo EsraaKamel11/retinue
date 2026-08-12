@@ -287,10 +287,32 @@ sharpest limit here: with nothing feeding it, `sent_count` defaults to a permiss
 re-attempt is unguarded. This projection closes that published limit - the fleet does not merely
 import the boundary, it completes it.
 
-All six `ActContext` fields are sourced: `sent_count` from the touchpoints table per investor,
-`consented_jurisdictions` from the identity record, the approval token from the ask flow,
-`granted_tools` from the topology roster, `tier` from the ladder decision (defaulting to the most
-restrictive), `send_cap` from configuration.
+**AMENDED 2026-08-12, and this is the sharpest correction in the document.** It read: "All six
+`ActContext` fields are sourced: ... the approval token from the ask flow ... `tier` from the ladder
+decision." Two of the six are not sourced, and the approval token is the one place the two lanes must
+actually meet.
+
+**Four are sourced.** `sent_count` from the touchpoints table per investor,
+`consented_jurisdictions` from the identity record, `granted_tools` from the topology roster,
+`send_cap` from configuration.
+
+**The approval token is NOT, and nothing bridges the ask to the chokepoint.** Nothing in this
+repository mints, transports or validates one: `build_act_context` takes
+`approval_token: str | None = None` and every non-test caller would default it. The imported check is
+presence-only, and `NO_APPROVAL_TOKEN` sits in `FUTILE_CLASSES`, so it is terminal with no redraft.
+Compose the system as designed and the result is: the hook asks, a human approves, the tool body
+reaches the chokepoint, and the chokepoint denies `act:no_approval_token` every time - unless the
+caller invents a token, which reduces the boundary's core predicate from "a human approved this act"
+to "the caller passed any non-None string." An SDK permission grant hands the tool body no evidence
+it can carry, so the bridge is not a wiring detail that was skipped; it is a design question this
+document did not answer while claiming it had.
+
+**`tier` is not sourced either.** `chaperone/gates/ladder.py` ships in the wheel and nothing in
+`src/retinue/` imports it; tier arrives everywhere as a bare int parameter.
+
+Both now carry Designed-only rows. This section asserted as built the one seam whose absence makes
+the strong lane unreachable, in a document that names ten other gaps by name, which is exactly the
+failure a reader is entitled to weigh the rest of it against.
 
 **Projection tri-state:** no-touchpoints (a true zero for a new investor) and
 projection-unavailable (the store could not be read) are different facts and carry different types

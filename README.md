@@ -225,9 +225,10 @@ the fleet's current session.
 
 The captured `system:init` for the P1 session carried five MCP servers and sixteen agent definitions
 where the topology declares three. (`fixtures/payloads/captured_init.json` is that capture and holds
-eight definitions; the sixteen is the count the session reported before the roster resolved, and the
-paragraph below is about that gap. Read the fixture as the P1 session's, not as today's.) A session inherits the operator's ambient configuration, because `agents=`
-merges rather than replaces.
+eight definitions, because the sixteen and the eight are TWO CAPTURES rather than two stages of one:
+sixteen with `setting_sources` unset, eight with it set, which is what the paragraph below measured.
+Read the fixture as the second of those.) A session inherits the operator's ambient configuration,
+because `agents=` merges rather than replaces.
 
 `setting_sources=[]` is set, and what it buys was measured rather than assumed: sixteen agent
 definitions fell to eight, two plugins and the operator's own hooks stopped running inside the
@@ -277,7 +278,7 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Capability | Status |
 |---|---|
 | Deterministic act boundary, checker, handoff, queues, audit chain | **Built (imported: `chaperone.gates`, `chaperone.policy`, `chaperone.audit`)** |
-| Matching staging + ablation harness | **Built (imported: `chaperone.matching`)** |
+| Matching staging | **Built (imported: `chaperone.matching`)** - `src/retinue/matching/integrate.py` imports `filters` and `rank`. The row said "staging + ablation harness"; nothing here runs an ablation, and the word appears in no other tracked file. Corrected rather than left, because this table is the authority. |
 | The library's own purity audit | **Not imported.** The wheel ships `src/chaperone` only; the source repository's `tools/` and `tests/` do not travel. |
 | Orchestration options + hook + routing | **Built (P1)** - `src/retinue/orchestration/topology.py`, `src/retinue/boundary/hook.py` |
 | Research agent + ResearchBrief contract | **Built (P1)** - `src/retinue/specialists/research.py`, `src/retinue/specialists/failures.py` |
@@ -289,7 +290,9 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The replay machinery is built and green against a hand-authored, provisional verdict set; the capture that would replace it has never run. |
 | Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. The checker lane, the pre-flight surface and the review queue are reachable only through it, so they have no production caller either. |
 | Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres and has never executed anywhere. |
-| Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo is written and runnable and has never run, so `captured_ask.json` does not exist and one test skips for that reason. |
+| Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo is written and runnable and has never run, so `captured_ask.json` does not exist and one test skips for that reason. **That skip has a cost worth naming:** the parked test is the only one asserting the *reason* a human is shown for a gated send. The routing decision itself is held in the default lane; the sentence in the prompt is not. |
+| **Ask-to-chokepoint approval bridge** | **Designed only, and it is the seam the two lanes meet at.** Nothing mints, transports or validates an approval token. `build_act_context` defaults it, the imported check is presence-only, and its violation class is terminal, so a composed system denies every send unless a caller invents a token - which would reduce "a human approved this act" to "the caller passed a non-None string". An SDK permission grant hands the tool body no evidence it can carry, so this is an unanswered design question rather than unwritten wiring. The spec asserted this as sourced until 2026-08-12. |
+| **Tier from the ladder decision** | Designed only - `chaperone/gates/ladder.py` ships in the wheel and nothing here imports it. Tier arrives as a bare int parameter. |
 | Contested-quantity rendering + thin-support badge | Designed only - the contract carries `quantity_key` so a conflict can be held, and the prompt instructs the model to group by it, but nothing renders a Contested quantity or a thin-support badge. Annotate-not-arbitrate is the commitment; surfacing the annotation is unbuilt. |
 | Weights-update sketch | Designed - `src/retinue/ledger/outcomes.py` carries the outcome-signal config parameter the sketch would read, and nothing updates a weight or a threshold from a resolved outcome. |
 | Per-investor sliding-window contact limit | Designed (inherits the library's note) |
