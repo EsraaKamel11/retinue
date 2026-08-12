@@ -5,9 +5,14 @@ difference rather than by reading the source: the first test hands `attempt_send
 invalid AND a key that already produced an act, and asserts which of the two refusals arrives.
 Swap the two steps and that test reddens on the other exception.
 
-Four tests here are not in the task brief, and each exists because a constraint in `send_tool.py`
-had no red arm without it. That is the standard this repository holds itself to: a constraint
-nothing can redden is a comment.
+The tests here that are not in the task brief each exist because a constraint in `send_tool.py` had
+no red arm without it. That is the standard this repository holds itself to: a constraint nothing
+can redden is a comment.
+
+Deliberately no COUNT of them. This line said "four" when the file held six and then eight, so it
+was never right at either commit, and the imported `gates/hook.py` opens by flagging that exact
+failure mode against itself: its docstring said three surfaces until the fourth had shipped for two
+tasks. A number here is a second fact to maintain and nothing holds it to the first.
 """
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,9 +25,9 @@ from chaperone.policy.types import Disposition, Draft, Message, Record, Violatio
 from retinue.boundary.checker_lane import build_checker, scripted_transport
 from retinue.boundary.hook import SEND_TOOL
 from retinue.boundary.review_queue import DurableQueues, memory_sink
-from retinue.boundary.send_tool import (PROJECTION_UNAVAILABLE, REVIEW_QUEUE, InvalidSend,
-                                        TerminalSend, attempt_send)
-from retinue.ledger.models import Touchpoint
+from retinue.boundary.send_tool import (PROJECTION_UNAVAILABLE, REVIEW_QUEUE, SEND_UNRECORDED,
+                                        InvalidSend, TerminalSend, UnrecordedSend, attempt_send)
+from retinue.ledger.models import StoreUnavailable, Touchpoint
 from retinue.ledger.store import InMemoryStore
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "verdicts" / "checker_scripted.json"
@@ -30,9 +35,27 @@ T0 = datetime(2030, 5, 1, tzinfo=timezone.utc)
 NOW = lambda: T0
 
 def draft(body="Following up on our conversation.", thread=None):
-    return Draft(thread=thread or (Message(role="investor", body="hello"),), body=body,
+    # `is None` and never falsiness: `thread or (...)` turned an EXPLICIT empty thread back into
+    # the default one-message thread, so a test written for a draft with no conversation would
+    # have silently been handed one. The same shape as `''.splitlines() == []`, which the block
+    # renderer's emptiness guard was already caught on.
+    default = (Message(role="investor", body="hello"),)
+    return Draft(thread=default if thread is None else thread, body=body,
                  cited_fields=(), recipient_jurisdiction="US", recipient_domain="example.test",
                  tool_name=SEND_TOOL)
+
+class RaisingStore:
+    """Reads fine, cannot be written. The Postgres lane's shape: `PostgresStore.append` translates
+    an `OperationalError` into `StoreUnavailable`, and that raise lands AFTER the act."""
+
+    def __init__(self) -> None:
+        self._inner = InMemoryStore()
+
+    def touchpoints_for(self, investor_id: str):
+        return self._inner.touchpoints_for(investor_id)
+
+    def append(self, tp: Touchpoint) -> bool:
+        raise StoreUnavailable("the ledger is unreachable")
 
 def ctx(**over):
     base = dict(approval_token="tok-1", tier=2, consented_jurisdictions=frozenset({"US"}),
@@ -79,8 +102,14 @@ def test_an_empty_body_on_an_unused_key_is_invalid(tmp_path):
 def test_boundary_precheck_denies_without_running_the_engine(tmp_path):
     kw, rows = harness(tmp_path)
     class SpyRegistry(dict):
+        # The lookup happens inside `execute`, which `Gateway.call` invokes ONLY on an allow, so
+        # this spy is SILENT on a denial - and the sentinel-context design it is aimed at would
+        # produce a denial. It is therefore not what carries this test, and the message said it
+        # was. What carries it is `assert out is None` below: `guarded_call` has no None return,
+        # so a None answer can only have come from the pre-check. The spy is the second line,
+        # catching the other direction, an allow that somehow reached the tool.
         def __getitem__(self, k):
-            raise AssertionError("registry looked up: guarded_call was reached")
+            raise AssertionError("the send tool was executed: the pre-check did not deny")
     kw["registry"] = SpyRegistry()
     out = attempt_send(key="k2", draft=draft(), record=Record(fields={}),
                        context=None, confirm=lambda v: True, **kw)
@@ -247,6 +276,101 @@ def test_checker_unavailable_becomes_a_routed_denial_with_outage(tmp_path):
     assert out is not None and not out.allowed
     assert kw["store"].touchpoints_for("inv-1") == ()
     assert rows and rows[-1][1]["reason_category"] == "other" and rows[-1][1]["detector_outage"]
+
+def test_the_touchpoint_carries_the_fields_it_was_handed_in_the_slots_it_was_handed_them(tmp_path):
+    """`occurred_at`, `recorded_at` and `mandate_id`, each pinned to a DISTINCT value.
+
+    Recorded in the introducing commit as un-reddenable, which was wrong and is corrected here.
+    The argument was that the harness sets both timestamps to one instant, so a swap is
+    unobservable, and that reddening it means changing a fixture the brief fixes. It does not: the
+    harness is a plain dict and this file already overrides a key in it twice, in the brief's own
+    pre-check test (`kw["registry"]`) and again in the args test. The constraint was self-imposed,
+    and a matrix row declared un-reddenable when the file's own idiom reddens it is worse than an
+    omitted one, because an omission is silent and that row carried an argument.
+
+    Bitemporality is the reason this matters rather than tidiness: `occurred_at` is when the send
+    was true in the world and `recorded_at` is when the system learned it, the store contract pins
+    them distinct, and `project_record` reads `occurred_at` alone for last-contact. Swapped, every
+    projection over this row answers with the wrong instant.
+    """
+    kw, _ = harness(tmp_path)
+    occurred, recorded = datetime(2030, 5, 2, tzinfo=timezone.utc), datetime(2030, 5, 3, tzinfo=timezone.utc)
+    kw.update(occurred_at=occurred, recorded_at=recorded, mandate_id="m-2")
+    attempt_send(key="k15", draft=draft(), record=Record(fields={}),
+                 context=ctx(), confirm=lambda v: True, **kw)
+    row = kw["store"].touchpoints_for("inv-1")[0]
+    assert (row.occurred_at, row.recorded_at, row.mandate_id) == (occurred, recorded, "m-2")
+
+def test_a_key_held_under_another_kind_is_not_reported_as_a_clean_allow(tmp_path):
+    """The act happened and the ledger has no record of it. Path one of three.
+
+    The terminal guard matches `key AND kind == "sent"`, while both stores dedupe on the key
+    ALONE: `InMemoryStore` on `self._keys`, Postgres on `idempotency_key TEXT PRIMARY KEY`. So a
+    key already held by a `contact` row passes the guard, the message goes out, and `append`
+    answers False.
+
+    UNBOUNDED, not off by one, which is the second half of this test. The row is never written, so
+    the guard finds no `sent` row for this key on the next attempt either: the key is a reusable,
+    unmetered send licence, and the terminal guard has failed at the job its own docstring claims
+    rather than merely at bookkeeping. Two acts, no meter, and now two escalations.
+    """
+    kw, rows = harness(tmp_path)
+    kw["store"].append(Touchpoint(idempotency_key="k16", investor_id="inv-1", mandate_id="m-1",
+                                  kind="contact", payload={}, occurred_at=T0, recorded_at=T0))
+    out = attempt_send(key="k16", draft=draft(), record=Record(fields={}),
+                       context=ctx(), confirm=lambda v: True, **kw)
+    assert isinstance(out, UnrecordedSend)
+    assert out.result.allowed and out.result.value == "handle-1"   # the act DID happen
+    assert not hasattr(out, "allowed")     # a caller duck-typing `.allowed` cannot read this as ok
+    assert [t for t in kw["store"].touchpoints_for("inv-1") if t.kind == "sent"] == []
+    assert [r for r in rows if r[1]["reason_category"] == SEND_UNRECORDED]
+
+    again = attempt_send(key="k16", draft=draft(), record=Record(fields={}),
+                         context=ctx(), confirm=lambda v: True, **kw)
+    assert isinstance(again, UnrecordedSend)
+    assert [t for t in kw["store"].touchpoints_for("inv-1") if t.kind == "sent"] == []
+    assert len([r for r in rows if r[1]["reason_category"] == SEND_UNRECORDED]) == 2
+
+def test_a_key_held_by_another_investor_is_not_reported_as_a_clean_allow(tmp_path):
+    """Path two, and it needs no cross-kind key at all.
+
+    The guard is investor-scoped and the key namespace is global, which the store contract pins in
+    its own words: `test_idempotency_keys_are_globally_unique_not_per_investor`. So a key holding a
+    perfectly correct `sent` row for one investor lets a send to a DIFFERENT investor through the
+    guard, and that investor's ledger ends up empty.
+
+    Prevention is out of reach here and detection is not, which is why this asserts what it does.
+    `TouchpointStore` exposes `touchpoints_for(investor_id)` and no lookup by key, so the
+    chokepoint cannot see another investor's row to refuse against. Reading `append`'s answer needs
+    no such lookup: the store already knows, and it already says so.
+    """
+    kw, rows = harness(tmp_path)
+    kw["store"].append(Touchpoint(idempotency_key="k17", investor_id="inv-OTHER", mandate_id="m-1",
+                                  kind="sent", payload={}, occurred_at=T0, recorded_at=T0,
+                                  delivery_status="CONFIRMED"))
+    out = attempt_send(key="k17", draft=draft(), record=Record(fields={}),
+                       context=ctx(), confirm=lambda v: True, **kw)
+    assert isinstance(out, UnrecordedSend)
+    assert out.result.allowed                            # a message reached a second investor
+    assert kw["store"].touchpoints_for("inv-1") == ()    # and left no trace in that ledger
+    assert [r for r in rows if r[1]["reason_category"] == SEND_UNRECORDED]
+
+def test_a_store_that_raises_after_the_act_is_not_reported_as_a_clean_allow(tmp_path):
+    """Path three: same call site, same event, and it used to leave by a different door.
+
+    `StoreUnavailable` out of `append` propagated through `attempt_send` AFTER the tool ran, so
+    the act had happened, no row existed, nothing was escalated, and the caller saw an exception
+    that says nothing about a message having left. Same event as a False return: the act occurred
+    and the ledger does not know.
+    """
+    kw, rows = harness(tmp_path)
+    kw["store"] = RaisingStore()
+    out = attempt_send(key="k18", draft=draft(), record=Record(fields={}),
+                       context=ctx(), confirm=lambda v: True, **kw)
+    assert isinstance(out, UnrecordedSend)
+    assert out.result.allowed and out.result.value == "handle-1"
+    assert "StoreUnavailable" in out.reason
+    assert [r for r in rows if r[1]["reason_category"] == SEND_UNRECORDED]
 
 #: A counterparty utterance carrying the checker prompt's own opening delimiter. `checker_lane`
 #: names this as a liveness lever the counterparty holds and leaves it open on purpose: the span

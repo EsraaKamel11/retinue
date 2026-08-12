@@ -15,6 +15,39 @@ The order inside attempt_send is load-bearing (spec 6):
 5. The sent touchpoint, tri-state - an unconfirmable send is UNVERIFIABLE and escalates; never
    guessed CONFIRMED. The payload carries byte counts, not text: message bodies live in the
    review queue's Handoff, never in the ledger.
+6. The record-keeping check, on the same call that made the act. `store.append` is declared
+   `-> bool` and the store contract already pins False as "dropped" for both implementations, so
+   this reads an answer the ledger was already giving.
+
+**Reading that boolean closes THREE paths at once, and it closes them BECAUSE IT DOES NOT CARE WHY
+the row was dropped.** Narrowing it back to any one of them reopens the other two:
+- a key already held by a touchpoint of another KIND, which the step 1 guard lets past because it
+  matches `key AND kind == "sent"` while both stores dedupe on the key alone;
+- a key already held by another INVESTOR, which needs no cross-kind key at all: the guard is
+  investor-scoped and the key namespace is global (`idempotency_key TEXT PRIMARY KEY`, and
+  `test_idempotency_keys_are_globally_unique_not_per_investor` pins exactly that);
+- a store that RAISES instead of answering, the Postgres lane's shape, which used to leave by a
+  different door entirely, propagating out after the act with nothing escalated.
+
+Prevention is not available here and detection is. `TouchpointStore` offers `touchpoints_for` and
+no lookup by key, so the chokepoint cannot see another investor's row to refuse against, and the
+act cannot be un-sent once `execute` has returned in any case. What is available is that an
+unrecorded act is NEVER REPORTED AS A CLEAN ALLOW AND NEVER SILENT. Left unread, the failure was
+unbounded rather than off by one: no row is written, so the guard finds none on the next attempt
+either, and the key becomes a reusable, unmetered send licence. Two acts, no meter, measured.
+
+**Why an unrecorded act comes back as a distinct TYPE and not as a raise.** A raise after an
+irreversible act is design spec 3.4's named trap aimed at the worst possible target: a
+defensively-written executor wraps handler invocation in a catch-all, the exception reaches the
+agent relabelled "transient, please retry", and the retry re-enters this function, where the guard
+finds no `sent` row FOR EXACTLY THE REASON WE ARE HERE and the message goes out a second time. The
+cost of a raise is therefore a duplicate message to an investor, where the cost of a silent allow
+is only a miscounted cap. `UnrecordedSend` is neither. It carries no `allowed` attribute, and that
+is deliberate: `True` is the state being distinguished from, `False` would say nothing was sent and
+invite the same re-send, and neither is honest about a call the gate allowed and the ledger lost. A
+caller duck-typing `.allowed` gets an AttributeError at its own call site rather than a plausible
+boolean, and loud beats plausible when the alternative is a message sent twice. `None` was not
+available for it either: that already means denied at the pre-check with the engine never run.
 
 **`Gateway.log_torn` is read here by nobody, and that is a decision rather than an oversight.**
 The imported gateway surfaces it and says why: the send cap counts intents, a tear may have taken
@@ -25,15 +58,15 @@ addressed to a caller whose cap reads the AUDIT LOG, and this repository has no 
 declines to hide is an input this chokepoint's cap does not consume, and a refusal keyed on it
 here would be a policy decision taken at the wrong layer over a count nothing reads. The right
 home, on the day anything in this tree counts intents off the log, is `build_act_context`, beside
-the count itself, where a torn log and a short count arrive together. The related defect this
-chokepoint DOES sit on is recorded in the task report rather than repaired here: the terminal
-guard matches on `key AND kind == "sent"` while both stores dedupe on the key alone, so a key
-already held by a touchpoint of another kind passes the guard and then loses its `sent` row to
-`append` returning False, which under-counts the ledger cap in exactly the shape the gateway
-describes. Widening the guard trades that for spurious refusals and is a store-contract change,
-not a chokepoint one.
+the count itself, where a torn log and a short count arrive together.
+
+The step 6 check above is the LEDGER's instance of the same hazard, and it is this chokepoint's
+because this chokepoint is what creates it. An earlier revision of this file deferred it as a
+store-contract change; that was wrong twice over. The store had already contracted the answer and
+already tested it, and the chokepoint is the only place the answer can be read.
 """
 from __future__ import annotations
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Mapping
 from chaperone.audit.gateway import Gateway, GatewayResult
@@ -47,6 +80,9 @@ from retinue.ledger.store import TouchpointStore
 
 PROJECTION_UNAVAILABLE = "boundary:projection_unavailable"
 DELIVERY_UNVERIFIABLE = "boundary:delivery_unverifiable"
+#: The act happened and the ledger has no record of it. Boundary-level like the two above and for
+#: the same reason: no policy predicate ran and none failed, so this may not wear a ViolationClass.
+SEND_UNRECORDED = "boundary:send_unrecorded"
 REVIEW_QUEUE = "human-review"   # the imported destination_for's one queue name (gates/engine.py);
                                 # spelled here because engine sits outside the 6.1 import surface.
                                 # Double entry:
@@ -58,6 +94,21 @@ class TerminalSend(Exception):
     """This idempotency key already produced an act. Refused before validation, by design."""
 
 class InvalidSend(Exception): ...
+
+@dataclass(frozen=True)
+class UnrecordedSend:
+    """The message left and the ledger has no record of it. Deliberately NOT a `GatewayResult`.
+
+    The module docstring carries the reasoning; the shape is the point. `result` is the real
+    gateway answer, so a caller that needs the handle or the audit sequence still has both, and
+    `reason` is why the row was dropped, in the store's own terms rather than this module's guess.
+
+    No `allowed` attribute. See the docstring: a caller duck-typing it gets an AttributeError at
+    its own call site, which is the loud failure, and every boolean that could sit there is a lie
+    in one direction or the other.
+    """
+    result: GatewayResult
+    reason: str
 
 def _boundary_handoff(draft: Draft, category: str, outage: str | None) -> Handoff:
     return Handoff(reason_category=category, detector_outage=outage,
@@ -71,7 +122,8 @@ def attempt_send(*, key: str, draft: Draft, record: Record, context: ActContext 
                  checker, gateway: Gateway, registry: Mapping[str, object], queues,
                  store: TouchpointStore, investor_id: str, mandate_id: str | None,
                  occurred_at: datetime, recorded_at: datetime,
-                 confirm: Callable[[object], bool | None]) -> GatewayResult | None:
+                 confirm: Callable[[object], bool | None],
+                 ) -> GatewayResult | UnrecordedSend | None:
     if any(t.idempotency_key == key and t.kind == "sent"
            for t in store.touchpoints_for(investor_id)):
         raise TerminalSend(f"idempotency key {key!r} already produced an act")
@@ -89,10 +141,28 @@ def attempt_send(*, key: str, draft: Draft, record: Record, context: ActContext 
         confirmed = confirm(result.value)
         status = ("CONFIRMED" if confirmed is True
                   else "FAILED" if confirmed is False else "UNVERIFIABLE")
-        store.append(Touchpoint(
-            idempotency_key=key, investor_id=investor_id, mandate_id=mandate_id, kind="sent",
-            payload={"body_bytes": len(draft.body.encode())},
-            occurred_at=occurred_at, recorded_at=recorded_at, delivery_status=status))
+        # `Exception` and not `BaseException`, matching boundary/hook.py: a cancellation or a
+        # SystemExit must still propagate. Everything narrower would have to enumerate the ways a
+        # store can fail, and the whole point of this branch is that it does not care which one.
+        # The row is BUILT inside the try as well, so a payload pydantic refuses is the same event
+        # as a store that will not take it: either way the act happened and the ledger has no row.
+        try:
+            recorded = store.append(Touchpoint(
+                idempotency_key=key, investor_id=investor_id, mandate_id=mandate_id, kind="sent",
+                payload={"body_bytes": len(draft.body.encode())},
+                occurred_at=occurred_at, recorded_at=recorded_at, delivery_status=status))
+            dropped = None if recorded else f"the ledger already holds the key {key!r}"
+        except Exception as exc:
+            dropped = f"the store raised {type(exc).__name__}: {exc}"
         if status == "UNVERIFIABLE":
             queues.put(REVIEW_QUEUE, _boundary_handoff(draft, DELIVERY_UNVERIFIABLE, None))
+        if dropped is not None:
+            # Both escalations fire when both are true; they are different facts about one send.
+            # `detector_outage` carries the reason for the same purpose the pre-check above uses it
+            # for: at a boundary class it is this module's slot for why the normal path did not
+            # complete, and the imported consumers only ever read it against a policy `other`.
+            queues.put(REVIEW_QUEUE, _boundary_handoff(
+                draft, SEND_UNRECORDED,
+                f"the message left and the ledger has no record of it; {dropped}"))
+            return UnrecordedSend(result=result, reason=dropped)
     return result
