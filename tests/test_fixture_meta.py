@@ -23,7 +23,26 @@ ROOT = Path(__file__).resolve().parents[1]
 FIX = ROOT / "fixtures"
 TESTS = Path(__file__).resolve().parent
 SCRIPTS = ROOT / "scripts"
-SMOKE = "RETINUE_LIVE=1 python scripts/capture_smoke.py"
+#: What the two P1-capture helpers below say when their fixture is missing. Until Task 24 this
+#: constant held `RETINUE_LIVE=1 python scripts/capture_smoke.py` and was emitted into two SKIP
+#: reasons as "produce it with:" - an instruction that had exited with `not a send-free session` on
+#: every invocation since Task 22 put the send names into the session roster. A false reason is
+#: worse than no reason, so the P1 capture is declared FROZEN at the payloads already in
+#: `fixtures/payloads/` and this says so.
+#:
+#: The skips became FAILURES in the same change, and the freeze is the whole argument for it. A skip
+#: says a lane legitimately did not run, which was true while the capture was still to be taken;
+#: once the fixtures are tracked and the command that made them refuses to run, their absence is a
+#: broken checkout and not a lane awaiting its turn. `tests/boundary/test_ask_replay.py` keeps its
+#: skip for the opposite reason and is the control for this one: the P4 demo has not run, its
+#: fixture cannot be hand-authored into existence, and absence there is the honest state.
+#:
+#: The path `scripts/capture_smoke.py` is still spelled here deliberately.
+#: `_gated_script_import_findings` parses rather than greps precisely so that a MENTION of a gated
+#: script is told apart from an import of one, and this is the mention it is told apart from.
+FROZEN = ("the P1 capture is frozen at the payloads under fixtures/payloads/, which are tracked; "
+          "scripts/capture_smoke.py refuses today's send-bearing session and cannot retake them, "
+          "so a missing one is a broken checkout rather than a lane that has not run yet")
 
 #: Exactly one of these, never two. "At least one" would let a fixture declare itself both
 #: captured and hand-authored, which is not a provenance but a pair of incompatible claims.
@@ -165,7 +184,7 @@ _GATED_SCRIPTS = ("capture_smoke", "demo", "judge_capture")
 def _gated_script_import_findings(root: Path) -> list[str]:
     """An import STATEMENT naming a gated script, told apart from a mention of one.
 
-    The skip reason below names `scripts/capture_smoke.py` in a string, and a grep cannot tell
+    The failure reason above names `scripts/capture_smoke.py` in a string, and a grep cannot tell
     that from an import - which is why the brief's `grep -r capture_smoke tests/` check broke on
     a correct change. Parsing is the same answer the fleet audit reaches for the same reason.
     """
@@ -238,13 +257,13 @@ def _init_findings(init: dict) -> list[str]:
 def _captured_init() -> dict:
     p = FIX / "payloads" / "captured_init.json"
     if not p.is_file():
-        pytest.skip(f"no captured system:init at {p}; produce it with: {SMOKE}")
+        pytest.fail(f"no captured system:init at {p}: {FROZEN}")
     return json.loads(p.read_text(encoding="utf-8"))["payload"]
 
 def _captured_payloads() -> list[dict]:
     paths = sorted(FIX.glob("payloads/captured_*.json"))
     if not paths:
-        pytest.skip(f"no captured payloads in {FIX / 'payloads'}; produce them with: {SMOKE}")
+        pytest.fail(f"no captured payloads in {FIX / 'payloads'}: {FROZEN}")
     return [json.loads(p.read_text(encoding="utf-8")).get("payload") or {} for p in paths]
 
 def test_every_fixture_json_carries_provenance():

@@ -11,9 +11,18 @@ contacts a model or a network.
 The design spec is `docs/superpowers/specs/2026-08-10-retinue-design.md` and it governs. Where this
 file and the spec disagree, the spec wins.
 
-**Status: Phase 1, the research spine, is what exists. Phases 2, 3 and 4 are not built.** The
-Designed-vs-Built table at the bottom is the authority on which is which, and nothing above it
-describes unbuilt work as built.
+**Status: P1 through P4 are built, and four capabilities inside them are not.** P1 is the research
+spine; P2 the matching integration, the ranking evaluators, the frozen-verdict replay and the
+block-stripped control; P3 the drafting specialist, the chokepoint, the pre-flight review surface
+and the durable review queue; P4 the conversation specialist and the live demo. The
+Designed-vs-Built table at the bottom is the authority on which capability is which, and it is not
+a summary of this sentence: a status claim and a row that disagree is the defect the table exists
+to catch, and the row is what gets fixed. The four capabilities that stay Designed say so there, by
+name, with the reason.
+
+Three things below are built and have never executed anywhere: the Postgres lane, the judge
+capture, and the live demo. Each says so where it is documented, and none of them is described here
+as a run that happened.
 
 ## What retinue imports
 
@@ -24,6 +33,38 @@ purity-audit tooling and its test suite do not travel with it and this repositor
 they do. This repository adds no policy code of its own; the import surface it depends on is the
 declared contract in spec section 6.1, and the substitute for a purity audit here is import
 discipline enforced as AST rules (`tools/fleet_audit.py`).
+
+## Why not `pydantic-ai-harness`
+
+`pydantic-ai-harness` (PyPI; `github.com/pydantic/pydantic-ai-harness`) is the official capability
+library for pydantic-ai. This repository is built on pydantic-ai and does not use it, and the
+reason is design rather than compatibility. Version 0.18.1, read on 2026-08-11, and the date is
+stated because a 0.x package that ships breaking changes between minor releases dates any claim
+made about it: at that version the harness wants `pydantic-ai-slim>=2.23.0` on Python >=3.10, while
+this repository pins `pydantic-ai>=2.23` on Python >=3.11, so adoption is possible and nothing
+below is a compatibility excuse.
+
+`ToolGuardrail` guards the tools a **pydantic-ai Agent** executes. This fleet's act boundary sits at
+the Claude Agent SDK's `PreToolUse` hook, because the SDK is the runtime executing the fleet's
+tools, and the chokepoint is `attempt_send` wrapping the imported `guarded_call`. Three execution
+layers, and the guardrail belongs to the one the acts do not travel through. `ToolGuardrail` is a
+wiring point rather than a policy in any case, since the caller supplies the callable: adopting it
+would add a place to call the imported engine from, and would not replace the engine.
+
+Two convergences are worth more than the code. The harness **deliberately declines** to ship a
+prompt-injection detector, on the reasoning that injection is ordinary language, so a pattern list
+catches the examples and misses the attack, and a check that reads as protection without being it
+is worse than none at all. That is this repository's own doctrine, reached independently. And the
+harness's `hidden=`, which drops a tool from the definitions the model sees, against a visible
+refusal, is the same distinction as the session-roster ceiling here: the research specialist has no
+outbound tool at all rather than a refused one.
+
+One question is carried open rather than answered. Policy denials here are terminal because
+chaperone's own README documents the `requires_approval` resume round trip as unsafe, since
+`override_args` substitutes before re-validation. The harness documents that same round trip and
+states that on the resumed run the guard is re-evaluated and every verdict except `approve` still
+applies. Whether that closes the hole is unverified in either direction; no run here has settled
+it, and it is a named gap rather than a resolved one.
 
 ## Install
 
@@ -37,16 +78,24 @@ install with its dev extra. Python >=3.11.
 ## The three lanes
 
 **Default lane** - `python -m pytest`. No daemon, no network, no key, on a fresh clone. At this
-commit: 75 passed, 7 skipped, the 7 being the Postgres lane below. It holds the options-shape
-tests, the hook callback replayed against captured payloads, the specialist tests under
-pydantic-ai's own offline doubles, and the ledger contract tests against an in-memory reference
-store.
+commit: 237 passed, 9 skipped, the 9 being 8 for the Postgres lane below and 1 for the P4 ask
+replay, whose fixture only a live demo run can produce. No second `-q`: `pyproject.toml`'s
+`addopts` already carries one, and `-qq` deletes the summary line that both CI and the battery
+read. The lane holds the options-shape tests, the hook callback replayed against captured payloads,
+the specialist tests under pydantic-ai's own offline doubles, the ledger contract tests against an
+in-memory reference store, the matching integration against the imported staging, the ranking
+evaluators over a hand-judged gold shortlist across the seeded synthetic roster, the frozen judge
+replay, the block-stripped control,
+the chokepoint's ordering and denial tests, the pre-flight two-signal routing, the review queue's
+in-memory half, and the audit's own planted-violation tests.
+`.github/workflows/ci.yml` runs it on 3.11 and 3.13, then the battery.
 
 **Postgres lane** - keyed on `RETINUE_PG_DSN`. Unset, it skips with a printed reason. Set, the same
 contract tests run against real Postgres alongside the enforcement tests only a real database can
-earn: the unique idempotency key, the append-only trigger, concurrent append, and the plan
-assertion that the projection's hot query uses the named index. `RETINUE_PG_REQUIRED=1` turns a
-skip into a failure, which is the negative control that keeps the lane from being vacuous.
+earn: the unique idempotency key, the append-only trigger, concurrent append, the durable
+review-queue sink, and the plan assertion that the projection's hot query uses the named index.
+`RETINUE_PG_REQUIRED=1` turns a skip into a failure, which is the negative control that keeps the
+lane from being vacuous.
 
 > **This lane has never executed, anywhere.** There is no Docker on the machine this was built on
 > and an ephemeral cluster would not start there, so every Postgres statement in this repository is
@@ -56,9 +105,35 @@ skip into a failure, which is the negative control that keeps the lane from bein
 > Locally: `docker compose up -d --wait`, then export the DSN from the trailing comment in
 > `docker-compose.yml` (port 55432, because a locally installed Postgres commonly holds 5432).
 
-**Live lane** - `RETINUE_LIVE=1 python scripts/capture_smoke.py`. Keyed, manual, flag-gated, and
-never in CI. Live runs are capture runs: payloads are recorded once, stamped with the SDK and CLI
-versions that produced them, frozen under `fixtures/`, and replayed by the default lane forever.
+**Live lane** - `RETINUE_LIVE=1`, keyed, manual, flag-gated, and never in CI. Live runs are capture
+runs: payloads are recorded once, stamped with the versions that produced them, frozen under
+`fixtures/`, and replayed by the default lane forever. There are three capture scripts and they are
+in three different states, which is the whole reason they are listed one by one:
+
+| Script | Command | State |
+|---|---|---|
+| `scripts/capture_smoke.py` (P1) | none, see below | Has run. Its payloads are frozen under `fixtures/payloads/` and the script now refuses every invocation. |
+| `scripts/judge_capture.py` (P2) | `RETINUE_LIVE=1 python scripts/judge_capture.py` | Runnable. Has never run. |
+| `scripts/demo.py` (P4) | `RETINUE_LIVE=1 python scripts/demo.py` | Runnable. Has never run. |
+
+**The P1 capture is frozen, and there is no command that retakes it.** `scripts/capture_smoke.py`
+refuses to construct a session in which any send tool exists, which was the point of the run: its
+payloads are the evidence that nothing in that session could ask. P4 then widened the session
+roster so that the demo could show a send being gated in a session that offers one, so the smoke's
+guard now fires on every invocation and prints `not a send-free session`. The guard is right and
+the roster is right. What that leaves is a script whose session no longer exists, and the choice
+was between giving it a capture-only send-free options shape and declaring the capture frozen. It
+is frozen, because `fixtures/payloads/` records the P1 topology as it stood, a retake under today's
+ceiling could not reproduce it, and a capture taken from an options shape nothing else in the tree
+constructs would be evidence about a session the fleet does not run. The script stays as the record
+of how those payloads were taken. A missing payload is therefore a broken checkout, not a lane
+awaiting its turn, and the two tests that read them fail rather than skip.
+
+The other two have never run, and nothing here rests on pretending otherwise. The judge capture's
+output, `fixtures/verdicts/judge_verdicts.json`, is hand-authored and marked provisional, and its
+own `meta` block states what its numbers are not. The demo's output, `captured_ask.json`, is absent,
+and `tests/boundary/test_ask_replay.py` is the one test in the suite whose subject may legitimately
+be missing: the fixture cannot be hand-authored into existence, because its provenance is the point.
 
 ## The battery
 
@@ -86,6 +161,17 @@ instead of exempting itself. Every gate asserts a magnitude and not merely a non
 That last guard earned its place by being caught rather than foreseen: a grep build that aborts on
 one flag combination printed nothing, and the gate scored the silence as a clean pass.
 
+Both floors are re-baselined to the finished tree at this commit and stay floors rather than
+equalities: a floor raised to equality reddens on the first added test and gets exempted, which is
+how a gate stops measuring.
+
+**It also says what it did not read.** Every gate scans `git ls-files`, so an untracked file is
+invisible to all of them while each still prints ok - measured, by dropping an untracked file
+holding a stale model id into the tree and watching the script exit 0. Scanning what ships is the
+right scope and has not changed; the silence was the defect. The run now counts untracked
+non-ignored files, names them, and does not fail on them, because a work in progress is not a
+violation and a gate that reddens on ordinary work gets disabled.
+
 The plan's Task 11 section embeds this script verbatim, and a test in the default lane holds the
 two byte-identical, so a plan describing gates the script no longer has is a red suite.
 
@@ -104,9 +190,9 @@ written into `tools/battery.sh` beside the gates rather than left to be noticed.
 
 ## What the live captures settled
 
-Three live capture runs, at claude-agent-sdk 0.2.130 with bundled CLI 2.1.222. The fixtures kept
-are all from one session, under `fixtures/payloads/`. What they settled, from real payloads rather
-than by reasoning:
+Three live capture runs of the P1 smoke, at claude-agent-sdk 0.2.130 with bundled CLI 2.1.222. The
+fixtures kept are all from one session, under `fixtures/payloads/`, and they are the frozen capture
+described above. What they settled, from real payloads rather than by reasoning:
 
 - **`agent_type` exists, and is spelled `research`.** The hook routes on that exact string, and
   the documented hook input does not list the key at all. If no real payload carried it, `decide`
@@ -124,6 +210,11 @@ than by reasoning:
   `tool_use` blocks and the hook payloads report `Agent`. Carrying both as data was necessary
   rather than defensive.
 
+Read that roster as the P1 session's, because it is. The session roster is wider today: P4 added
+the two send spellings to it, so the ceiling now offers a send tool the P1 session had no way to
+reach. The capture is evidence about what the SDK does with `tools=`, and it is not a picture of
+the fleet's current session.
+
 ## The session is not hermetic by default
 
 The captured `system:init` carried five MCP servers and sixteen agent definitions where the
@@ -140,8 +231,14 @@ The field that would close the MCP half is `ClaudeAgentOptions.strict_mcp_config
 default `False`, mapping to the CLI's `--strict-mcp-config`, documented as ignoring every MCP
 configuration the CLI would otherwise load). The fleet does not set it today, and that sentence is
 source-cited at 0.2.130 rather than captured, so the residual is guarded instead of assumed: a
-fixture contract asserts no `mcp__` tool resolves **into** the session, which is the property those
-servers would have to breach before their presence mattered.
+fixture contract asserts that no `mcp__` tool resolved into the P1 session, which is the property
+those servers would have to breach before their presence mattered.
+
+That contract is scoped to `captured_init.json` and to nothing else, deliberately, and the scope is
+the load-bearing part rather than a caveat. P4 registers an in-process SDK MCP server inside
+`scripts/demo.py`, so an `mcp__` send tool does resolve into that session on purpose: containment
+is never demonstrated by the absence of the thing being contained. The rule keeps its edge over the
+one file whose claim is a send-free session, and it makes no claim about the demo's.
 
 Partial hermeticity is worth stating as partial. A capture taken under one machine's ambient
 configuration is not canonical whatever it happens to show.
@@ -149,15 +246,25 @@ configuration is not canonical whatever it happens to show.
 ## Fixture provenance limit
 
 Fixtures here are hand-authored, not blind-authored. **Every number this repository produces is a
-demonstration of a protocol, not a measured claim about model behaviour.** Judge verdicts, when
-they exist, are frozen at version. Synthetic mandate and check-size figures are invented and
-resemble no real firm's published ranges. Each fixture declares exactly one provenance in its own
-`meta` block, and a test enforces that, including that a capture carrying an operator's home
-directory path has to declare the redaction.
+demonstration of a protocol, not a measured claim about model behaviour.** Both halves of that
+sentence are load-bearing: the first says how the fixtures were made, and the second says what
+follows, which is that no figure here may be read as an observation of a model.
+
+The judge verdicts the evaluation harness replays are hand-authored and marked provisional, because
+`scripts/judge_capture.py` has never run. Their fixture says so in its own `meta`: the drafts'
+ground truth and the verdict column are one author's judgment, so agreement between them is
+arithmetic over two columns of one opinion rather than a measurement of any judge. A live capture is
+what would turn the tests that read that file into claims about a model, and it has not happened.
+Verdicts that come from a capture are frozen at version.
+
+Synthetic mandate and check-size figures are invented and resemble no real firm's published ranges.
+Each fixture declares exactly one provenance in its own `meta` block, and a test enforces that,
+including that a capture carrying an operator's home directory path has to declare the redaction.
 
 ## Designed vs Built
 
-Rows land as Built only when they are built.
+Rows land as Built only when they are built. This table is the authority: where a claim elsewhere
+in this file and a row here disagree, the row is the thing that gets corrected.
 
 | Capability | Status |
 |---|---|
@@ -168,13 +275,14 @@ Rows land as Built only when they are built.
 | Research agent + ResearchBrief contract | **Built (P1)** - `src/retinue/specialists/research.py`, `src/retinue/specialists/failures.py` |
 | Ledger schema, projection, `ActContext` feed | **Built (P1)** - `schema.sql`, `src/retinue/ledger/`. The in-memory contract lane is green; the Postgres half has never executed anywhere (see Lanes). |
 | Rendered block renderer (budget + completeness raises) | **Built (P1)** - `src/retinue/ledger/block.py` |
-| Live capture smoke + payload fixtures | **Built (P1)** - `scripts/capture_smoke.py`, `fixtures/`, plus the seeded roster generator at `src/retinue/synth/rosters.py`. Two gaps the script names itself: the `background`-unset half of the background evidence pair is unproduced, and the "ask" fixture belongs to the first session that owns a send tool, which is P4. |
+| Live capture smoke + payload fixtures | **Built (P1)** - `scripts/capture_smoke.py`, `fixtures/payloads/`, plus the seeded roster generator at `src/retinue/synth/rosters.py`. The capture is frozen and the script refuses every invocation (see Lanes). One gap it names itself stays unproduced: the `background`-unset half of the background evidence pair, which needs a run against a deliberately-unset definition. The "ask" fixture moved to the P4 demo, which owns it. |
+| Matching integration + ranking evaluators + OutcomeRecord | **Built (P2)** - `src/retinue/matching/integrate.py`, `src/retinue/evals/ranking.py`, `src/retinue/ledger/outcomes.py` |
+| Block-stripped control | **Built (P2)** - `src/retinue/evals/control.py` |
+| Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The replay machinery is built and green against a hand-authored, provisional verdict set; the capture that would replace it has never run. |
+| Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. |
+| Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres and has never executed anywhere. |
+| Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo is written and runnable and has never run, so `captured_ask.json` does not exist and one test skips for that reason. |
 | Contested-quantity rendering + thin-support badge | Designed only - the contract carries `quantity_key` so a conflict can be held, and the prompt instructs the model to group by it, but nothing renders a Contested quantity or a thin-support badge. Annotate-not-arbitrate is the commitment; surfacing the annotation is unbuilt. |
-| Matching integration + ranking evaluators + OutcomeRecord | Designed (P2) |
-| Block-stripped control | Designed (P2) |
-| Judge capture + frozen-verdict replay | Designed (P2) |
-| Drafting agent + chokepoint wiring + pre-flight review | Designed (P3) |
-| Durable review-queue table (escalation persistence) | Designed (P3) |
-| Conversation agent + live demo | Designed (P4) |
+| Weights-update sketch | Designed - `src/retinue/ledger/outcomes.py` carries the outcome-signal config parameter the sketch would read, and nothing updates a weight or a threshold from a resolved outcome. |
 | Per-investor sliding-window contact limit | Designed (inherits the library's note) |
 | Store unification (audit chain + ledger) | Designed note only |

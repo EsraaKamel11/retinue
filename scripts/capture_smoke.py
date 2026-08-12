@@ -1,10 +1,22 @@
 """The P1 live capture smoke (spec 2.3). RETINUE_LIVE=1 gated; never imported by tests; run
 manually, once; its outputs are the canonical captured fixtures the default lane replays.
 
-Session shape: orchestrator + research subagent ONLY - no send tool exists anywhere in the
-session, so this run cannot ask and does not try to. It captures the real PreToolUse payloads:
-whether `agent_type` reaches a hook at all and, more to the point, HOW the CLI spells it, since
-the router matches that string exactly; the spawn tool's real naming; and the `system:init`
+THIS SCRIPT NO LONGER RUNS, AND THE CAPTURE IT TOOK IS FROZEN. `_refuse_if_a_send_tool_exists`
+below exits on every invocation, because Task 22 put the send names into `SESSION_TOOLS` so that
+the P4 demo could show a send being gated in a session that offers one. The guard is right and the
+roster is right; what changed underneath both is that the send-free session this script captures is
+no longer the session the fleet builds. Task 24 settled that as a FREEZE rather than by giving the
+smoke a capture-only send-free options shape, and the reason is what such a shape would produce:
+`captured_00.json`, `captured_01.json` and `captured_init.json` record the P1 topology as it stood,
+so a retake under today's ceiling could not reproduce them, and a capture taken from an options
+shape nothing else in the tree constructs would be evidence about a session the fleet does not run.
+The script stays here as the record of how those payloads were taken, and it refuses to take them
+again rather than taking different ones under the same name.
+
+Session shape, AS CAPTURED: orchestrator + research subagent only, with no send tool anywhere in
+the session, so that run could not ask and did not try to. It captured the real PreToolUse
+payloads: whether `agent_type` reaches a hook at all and, more to the point, HOW the CLI spells it,
+since the router matches that string exactly; the spawn tool's real naming; and the `system:init`
 payload, whose own tool list is the only artifact that says whether `tools=` restricts the
 session or merely proposes a set.
 
@@ -13,12 +25,13 @@ The message stream is recorded rather than discarded. An earlier version of this
 source and left half the session unobserved.
 
 The one thing spec 2.3 attributes to this smoke that it does NOT produce: the background evidence
-PAIR needs two runs whose `background` settings differ, and this is one run against one topology,
-where every AgentDefinition sets `background=False`. This run produces that half. The other half -
+PAIR needs two runs whose `background` settings differ, and this was one run against one topology,
+where every AgentDefinition sets `background=False`. That run produced that half. The other half -
 `background` unset, the field dropped on serialisation, the subagent's tool list silently stripped
-- needs a run against a deliberately-unset definition and is left visibly unproduced. The "ask"
-surfacing fixture likewise belongs to the first session that owns a send tool, which this one
-deliberately does not.
+- needs a run against a deliberately-unset definition and is left visibly unproduced, and the
+freeze above is why it stays that way here rather than being one command from existing. The "ask"
+surfacing fixture belonged to the first session that owns a send tool, which this one deliberately
+does not; `scripts/demo.py` is that session and owns that fixture.
 """
 from __future__ import annotations
 import asyncio, json, os, platform, re, shutil, subprocess, sys
@@ -91,6 +104,10 @@ def _refuse_if_a_send_tool_exists(options) -> None:
     Checked here, before the client is constructed, so a mistake in the check itself costs no
     tokens. The tool name is imported from its one home rather than respelled. `mcp_servers` is
     read too: the session roster is not the only door a send tool could come through.
+
+    IT NOW FIRES UNCONDITIONALLY, which is the freeze the module docstring records: `build_options`
+    names both send spellings in `SESSION_TOOLS`, so every invocation raises here. Left in force
+    rather than relaxed, because relaxing it is precisely the decision that was taken and declined.
     """
     from retinue.boundary.hook import SEND_TOOLS
     rosters = [options.tools or [], options.allowed_tools or []]

@@ -1782,10 +1782,15 @@ say() { printf '%-40s %s\n' "$1" "$2"; }
 # Floors, not counts, and both sit deliberately below what the tree holds today: ordinary growth
 # and the odd deletion stay quiet, while a COLLAPSE reddens. A pathspec that stops matching, or a
 # suite that stops collecting, is the failure these two numbers exist for.
-FILE_FLOOR=40   # tracked files scanned; 50 at the time of writing
-PASS_FLOOR=72   # tests that must PASS; the tree holds 75 passed and 7 skipped, and the floor
-                # trails on purpose - a floor raised to equality reddens on the first added test
-                # and gets exempted, which is how a gate stops measuring
+#
+# RE-BASELINED to the finished tree. They were set against the Phase 1 tree, 40 against 50 files
+# and 72 against 75 passed, and four phases later that leaves a 42-file and a 165-test gap: numbers
+# that catch a collapse while sitting green through the deletion of every test Phases 2 to 4 added.
+# A floor trailing the tree by two thirds has stopped measuring erosion. Still floors and never
+# equalities, for the reason the old comment gave and which has not changed: a floor raised to
+# equality reddens on the first added test and gets exempted, which is how a gate stops measuring.
+FILE_FLOOR=78   # tracked files scanned; 82 at the time of writing (was 40, against 50)
+PASS_FLOOR=230  # tests that must PASS; the tree holds 237 passed and 9 skipped (was 72, against 75)
 
 TMP=$(mktemp -d) || { printf 'battery: could not make a temp dir\n' >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
@@ -1881,6 +1886,36 @@ case "$control" in
     exit 1 ;;
 esac
 say "scanning" "${#ALL[@]} tracked files, floor $FILE_FLOOR (control: $control hits)"
+
+# What this run did NOT read, said out loud rather than left to be discovered. Every gate below
+# scans `git ls-files`, so an UNTRACKED file is invisible to all of them while each still prints
+# ok - measured during Task 12 by dropping an untracked file holding a stale model id into the tree
+# and watching this script exit 0. Scanning what ships is the right scope and is not what changes
+# here; the silence was the defect. It is the same shape as the token pass below, which says it did
+# NOT run rather than skipping quietly.
+#
+# REPORTED, NEVER FAILED. A work in progress is not a violation, and a gate that reddens on
+# ordinary work gets disabled, which costs more than this line is worth.
+#
+# `--others --exclude-standard` rather than a porcelain status: a status also lists MODIFIED tracked
+# files, and those ARE scanned, so counting them would report as unread a file that was read.
+# Ignored files stay out for the same reason they are ignored, `tools/banned_tokens.txt` among them.
+# The exit status is checked rather than folded into a count, for the reason `scan` gives above: a
+# git invocation that died would otherwise print the same "0 unscanned" as a clean tree.
+if git ls-files --others --exclude-standard -z > "$TMP/untracked"; then
+  # NUL-delimited and counted by delimiter, so a filename holding a newline counts once rather than
+  # twice. A command substitution would eat the NUL bytes, which is why this goes through a file.
+  n_untracked=$(tr -cd '\0' < "$TMP/untracked" | wc -c | tr -d ' ')
+  if [ "$n_untracked" -eq 0 ]; then
+    say "unscanned" "0 untracked files, so every non-ignored file in the tree was scanned"
+  else
+    say "unscanned" "$n_untracked untracked non-ignored file(s), read by no gate below:"
+    tr '\0' '\n' < "$TMP/untracked" | sed 's/^/    /'
+  fi
+else
+  say "unscanned" "git could not list untracked files, so the scope is unknown FAIL"
+  fail=1
+fi
 
 # -I skips files grep judges binary. It is belt-and-braces here, since the only binary artifact in
 # the tree is the vendored wheel and the pathspec above already excludes it. It is still a
