@@ -34,10 +34,10 @@ contested-quantity rendering, the weights-update sketch) and two notes inherited
 four, written before the approval bridge and the ladder tier joined the table, which is the
 count-versus-row disagreement the previous sentence describes.
 
-Three things below are built and have never executed anywhere: the Postgres lane, the live demo,
-and CI itself. Each says so where it is documented, and none of them is described here as a run
-that happened. The judge capture left this list on 2026-08-12: it ran once, and its output is the
-frozen verdict set the default lane replays.
+Two things below are built and have never executed anywhere: the Postgres lane and CI itself. Each
+says so where it is documented, and neither is described here as a run that happened. The judge
+capture and the live demo both left this list on 2026-08-12: each ran once, and their outputs are
+the frozen fixtures the default lane replays.
 
 CI is the one that was nearly missed, and naming it is the point of the list. An earlier version
 left CI off it, which invited the reading that everything else had run. This repository has no remote and has never been
@@ -68,8 +68,7 @@ install with its dev extra. Python >=3.11.
 ## The three lanes
 
 **Default lane** - `python -m pytest`. No daemon, no network, no key, on a fresh clone. At this
-commit: 240 passed, 9 skipped, the 9 being 8 for the Postgres lane below and 1 for the P4 ask
-replay, whose fixture only a live demo run can produce. No second `-q`: `pyproject.toml`'s
+commit: 241 passed, 8 skipped, all 8 for the Postgres lane below. No second `-q`: `pyproject.toml`'s
 `addopts` already carries one, and `-qq` deletes the summary line that both CI and the battery
 read. The lane holds the options-shape tests, the hook callback replayed against captured payloads,
 the specialist tests under pydantic-ai's own offline doubles, the ledger contract tests against an
@@ -107,7 +106,7 @@ in three different states, which is the whole reason they are listed one by one:
 |---|---|---|
 | `scripts/capture_smoke.py` (P1) | none, see below | Has run. Its payloads are frozen under `fixtures/payloads/` and the script now refuses every invocation. |
 | `scripts/judge_capture.py` (P2) | `RETINUE_LIVE=1 python scripts/judge_capture.py` | Has run once (2026-08-12). Its verdicts are frozen and replayed; running it again overwrites that canon, which is a deliberate act and not a refresh. |
-| `scripts/demo.py` (P4) | `RETINUE_LIVE=1 python scripts/demo.py` | Runnable. Has never run. |
+| `scripts/demo.py` (P4) | `RETINUE_LIVE=1 python scripts/demo.py` | Has run once (2026-08-12). The send tool's offer was asserted in the live session before any gating claim, the conversation send fired the hook's ask, and the tool body was reached zero times. Its capture is frozen and replayed; running it again overwrites that canon. |
 
 **The P1 capture is frozen, and there is no command that retakes it.** `scripts/capture_smoke.py`
 refuses to construct a session in which any send tool exists, which was the point of the run: its
@@ -122,12 +121,15 @@ constructs would be evidence about a session the fleet does not run. The script 
 of how those payloads were taken. A missing payload is therefore a broken checkout, not a lane
 awaiting its turn, and the tests that read them fail rather than skip.
 
-The demo has never run, and nothing here rests on pretending otherwise. Its output,
-`captured_ask.json`, is absent, and `tests/boundary/test_ask_replay.py` is the one test in the
-suite whose subject may legitimately be missing: the fixture cannot be hand-authored into
-existence, because its provenance is the point. The judge capture's output,
-`fixtures/verdicts/judge_verdicts.json`, stopped being hand-authored when its capture ran; what its
-two verdicts do and do not establish is owned by the fixture-provenance section below.
+Both live captures have now run, once each, on the same day. The demo's output,
+`fixtures/payloads/captured_ask.json`, is the one fixture that could never have been hand-authored
+into existence, because its provenance is the point: it is a real hook payload from a real session
+in which a send tool was offered, a gated specialist tried to use it, and the hook held it for a
+human while the tool body went unreached. `tests/boundary/test_ask_replay.py` replays it and now
+fails rather than skips on absence, since a tracked capture that is missing is a broken checkout.
+The judge capture's output, `fixtures/verdicts/judge_verdicts.json`, stopped being hand-authored
+the same way; what its two verdicts do and do not establish is owned by the fixture-provenance
+section below.
 
 ## The battery
 
@@ -319,7 +321,7 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The capture ran once (2026-08-12); the verdict set is captured, stamped in its own meta, and replayed by the default lane. Two cases with one under the confidence floor: real-judge evidence at protocol size, not a measurement at scale. |
 | Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. The checker lane, the pre-flight surface and the review queue are reachable only through it, so they have no production caller either. |
 | Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres and has never executed anywhere. |
-| Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo is written and runnable and has never run, so `captured_ask.json` does not exist and one test skips for that reason. **That skip's cost is narrower than it looks:** the reason wording is held in the default lane over a hand-authored payload, and the parked test is the only one asserting it over a captured one. |
+| Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo ran once (2026-08-12): the send tool's offer was asserted in the live session, the conversation send fired the hook's ask, the tool body was reached zero times, and the captured ask is tracked and replayed by `tests/boundary/test_ask_replay.py`. The reason a human is shown for a gated send is now asserted over a hand-authored payload and a captured one. |
 | **Ask-to-chokepoint approval bridge** | **Designed only, and it is the seam the two lanes meet at.** Nothing mints, transports or validates an approval token. `build_act_context` defaults it, the imported check is presence-only, and its violation class is terminal, so a composed system denies every send unless a caller invents a token - which would reduce "a human approved this act" to "the caller passed a non-None string". An SDK permission grant hands the tool body no evidence it can carry, so this is an unanswered design question rather than unwritten wiring. The spec asserted this as sourced until 2026-08-12. |
 | **Tier from the ladder decision** | Designed only - `chaperone/gates/ladder.py` ships in the wheel and nothing here imports it. Tier arrives as a bare int parameter. |
 | Contested-quantity rendering + thin-support badge | Designed only - the contract carries `quantity_key` so a conflict can be held, and the prompt instructs the model to group by it, but nothing renders a Contested quantity or a thin-support badge. Annotate-not-arbitrate is the commitment; surfacing the annotation is unbuilt. |

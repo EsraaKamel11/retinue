@@ -33,9 +33,13 @@ SCRIPTS = ROOT / "scripts"
 #: The skips became FAILURES in the same change, and the freeze is the whole argument for it. A skip
 #: says a lane legitimately did not run, which was true while the capture was still to be taken;
 #: once the fixtures are tracked and the command that made them refuses to run, their absence is a
-#: broken checkout and not a lane awaiting its turn. `tests/boundary/test_ask_replay.py` keeps its
-#: skip for the opposite reason and is the control for this one: the P4 demo has not run, its
-#: fixture cannot be hand-authored into existence, and absence there is the honest state.
+#: broken checkout and not a lane awaiting its turn. `tests/boundary/test_ask_replay.py` was the
+#: control for this reasoning while the P4 demo had not run: its skip said the lane was awaiting
+#: its turn, which was true and could not be faked, since that fixture cannot be hand-authored into
+#: existence. The demo ran on 2026-08-12 and its capture is tracked, so that file crossed to this
+#: side of the line by the argument above: absence there now FAILS too. The contrast this comment
+#: used to draw ended the day both captures existed; what remains is the doctrine itself, which is
+#: that a skip's printed reason has to be true.
 #:
 #: The path `scripts/capture_smoke.py` is still spelled here deliberately.
 #: `_gated_script_import_findings` parses rather than greps precisely so that a MENTION of a gated

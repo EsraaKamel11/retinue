@@ -1,24 +1,23 @@
-"""Replays the captured ask fixture through the hook. Skips until the P4 demo has run - the
-fixture CANNOT be hand-authored into existence: its provenance is the point (spec 2.3).
+"""Replays the captured ask fixture through the hook.
 
-The P1 smoke deliberately owns no send tool, so no session before the demo could produce an "ask"
-at all. That is why this file is the one test in the suite whose subject may be absent: a skip here
-says the live lane has not run, and manufacturing the fixture to turn the skip green would replace
-the one thing the fixture is for.
+This file SKIPPED while the P4 demo had not run, and that was the honest state: the fixture cannot
+be hand-authored into existence - its provenance is the point (spec 2.3) - and the P1 smoke
+deliberately owned no send tool, so no session before the demo could produce an "ask" at all. The
+demo ran on 2026-08-12 and its capture is tracked, so the skip's reason ("not yet run") stopped
+being true, and a missing fixture is now a broken checkout rather than a lane awaiting its turn.
+Absence FAILS, on the same doctrine as the frozen P1 payloads in `tests/test_fixture_meta.py`: a
+skip whose printed reason is false is worse than no skip at all.
 
-`scripts/demo.py` is NAMED in the skip reason and imported nowhere. `tests/test_fixture_meta.py`
+`scripts/demo.py` is NAMED in the failure message and imported nowhere. `tests/test_fixture_meta.py`
 carries the rule that enforces the difference, and it parses rather than greps for exactly this
 case: the brief's `grep -r demo tests/` check reports this docstring and the string below.
 """
 import asyncio, json
 from pathlib import Path
-import pytest
 from retinue.boundary.hook import SEND_TOOLS, pre_tool_use
 
 FIX = Path(__file__).resolve().parents[2] / "fixtures" / "payloads" / "captured_ask.json"
 
-@pytest.mark.skipif(not FIX.exists(),
-                    reason="captured by scripts/demo.py (RETINUE_LIVE=1); not yet run")
 def test_captured_ask_payload_replays_to_ask():
     """The ask, and the ask FOR THE RIGHT REASON.
 
@@ -29,6 +28,10 @@ def test_captured_ask_payload_replays_to_ask():
     say the containment replays. So the payload's own routing facts are pinned first, and the reason
     string is read for the send arm's wording rather than for the word "human", which both arms use.
     """
+    assert FIX.exists(), (
+        "fixtures/payloads/captured_ask.json is tracked (captured by scripts/demo.py on "
+        "2026-08-12), so a missing one is a broken checkout; re-capturing with RETINUE_LIVE=1 "
+        "overwrites the canon and is a deliberate act")
     row = json.loads(FIX.read_text(encoding="utf-8"))
     assert row["meta"]["captured"]                       # provenance stamp required
     payload = row["payload"]

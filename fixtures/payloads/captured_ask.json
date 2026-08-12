@@ -1,0 +1,30 @@
+{
+ "meta": {
+  "captured": {
+   "sdk": "0.2.130",
+   "cli": "2.1.222"
+  },
+  "redacted": [
+   "auto: user path segment replaced with <user>",
+   "manual: session_id, prompt_id, tool_use_id, agent_id, cwd and transcript_path replaced with shape-preserving placeholders, the same treatment the P1 family received. The routing facts and the model-authored body are untouched, because they are the evidence; the identifiers are the operator's environment and carry no weight for it."
+  ]
+ },
+ "payload": {
+  "session_id": "<session-id>",
+  "transcript_path": "<transcript-root>/<session-id>",
+  "cwd": "<repo-root>",
+  "prompt_id": "<prompt-id>",
+  "permission_mode": "default",
+  "agent_id": "<agent-id>",
+  "agent_type": "conversation",
+  "effort": {
+   "level": "high"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "mcp__retinue__send_message",
+  "tool_input": {
+   "body": "Checking in \u2014 happy to share an update or answer any questions whenever that's useful."
+  },
+  "tool_use_id": "<tool-use-id>"
+ }
+}

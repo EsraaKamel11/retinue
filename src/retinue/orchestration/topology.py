@@ -85,13 +85,12 @@ AGENTS: dict[str, AgentDefinition] = {
 #:
 #: WHAT HOLDS IT, in the order the claims are worth. First, the demo's tool body performs no act:
 #: no transport, no gateway, no `attempt_send`, nothing that leaves the process. It is a capture
-#: instrument, so reaching it sends nothing. Second, and INFERRED rather than measured, labelled
-#: because the block above this one already holds itself to that line: on the path the demo exists
-#: to demonstrate the body should not be reached at all, since `decide` answers `"ask"` for
-#: conversation before the call and an unattended headless run has nobody to approve it. What a
-#: `permission_mode="default"` session with no `can_use_tool` callback does with an ask has never
-#: been run here, so that claim carries no weight the first one does not already carry, and the
-#: answer rests on the first. Third, and scoped to a payload SHAPE rather
+#: instrument, so reaching it sends nothing. Second, MEASURED on 2026-08-12, where an earlier
+#: revision of this sentence was labelled inferred: the demo ran, the conversation agent's send
+#: fired the hook's ask, and the tool body was reached ZERO times in a session that captured seven
+#: hook payloads. One run of one session, so it is evidence the ask arm holds unattended, not a
+#: distribution over runs; the claim still rests first on the body performing no act. Third, and
+#: scoped to a payload SHAPE rather
 #: than offered as a property of the lane: the demo's tool declares `{"body": str}`, which is the
 #: chokepoint's own whole `tool_input`, and a main-thread call carrying only a body is refused by the
 #: imported lane on `act:no_approval_token`. That last one is a measurement over the shape the schema
