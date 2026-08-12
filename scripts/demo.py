@@ -12,7 +12,10 @@ Two obligations, in order, and the order is the whole design:
 
 Exit codes, because the two ways of not finishing are different facts: 0 the ask was captured,
 1 the send tool was NEVER OFFERED (obligation 1 failed, and nothing here demonstrates anything),
-2 the tool was offered and never called (obligation 1 met, no ask to capture, re-run).
+2 the tool was offered and the conversation lane made no send (obligation 1 met, no ask to
+capture, re-run). That wording is the branch's own: "offered and never called" would be a
+containment claim resting on a count this script does not take, and the exit-2 branch below says
+so where it prints.
 
 **Nothing is written under a `finally`, and that is a deliberate difference from the P1 smoke.**
 That script writes in a `finally` because a live capture is not repeatable and payloads held in a

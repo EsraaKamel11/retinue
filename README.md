@@ -34,15 +34,19 @@ contested-quantity rendering, the weights-update sketch) and two notes inherited
 four, written before the approval bridge and the ladder tier joined the table, which is the
 count-versus-row disagreement the previous sentence describes.
 
-Two things below are built and have never executed anywhere: the Postgres lane and CI itself. Each
-says so where it is documented, and neither is described here as a run that happened. The judge
+Two things below are built and, as of 2026-08-12, have never executed anywhere: the Postgres lane
+and CI itself. Each says so where it is documented, and neither is described here as a run that
+happened. The dates on these sentences are load-bearing rather than decorative: publishing this
+repository is itself the act that can make some of them stale, so they are written to stay true by
+naming when they were true rather than by describing a present that moves. The judge
 capture and the live demo both left this list on 2026-08-12: each ran once, and their outputs are
 the frozen fixtures the default lane replays.
 
 CI is the one that was nearly missed, and naming it is the point of the list. An earlier version
-left CI off it, which invited the reading that everything else had run. This repository has no remote and has never been
-pushed, so `.github/workflows/ci.yml` has never executed; the local interpreter is 3.13, so nothing
-has been run on 3.11 by anyone. Every count below is from this machine, on this version.
+left CI off it, which invited the reading that everything else had run. As of 2026-08-12 this
+repository had no remote and had never been pushed, so `.github/workflows/ci.yml` had never
+executed; the local interpreter is 3.13, so nothing had been run on 3.11 by anyone. Every count
+below is from this machine, on this version.
 
 ## What retinue imports
 
@@ -77,8 +81,8 @@ evaluators over a hand-judged gold shortlist across the seeded synthetic roster,
 replay, the block-stripped control, the chokepoint's ordering and denial tests, the pre-flight
 two-signal routing, the review queue's in-memory half, and the audit's own planted-violation tests.
 `.github/workflows/ci.yml` is written to run it on 3.11 and 3.13, then the battery. It has never
-run: there is no remote and nothing has been pushed, so the 3.11 half of that matrix is a claim
-about a version no one has executed this suite on.
+run as of 2026-08-12, when there was no remote and nothing had been pushed, so the 3.11 half of
+that matrix is a claim about a version no one had executed this suite on.
 
 **Postgres lane** - keyed on `RETINUE_PG_DSN`. Unset, it skips with a printed reason. Set, the same
 contract tests run against real Postgres alongside the enforcement tests only a real database can
@@ -96,7 +100,7 @@ first run's plan is pinned in the docstring as the finding it was.
 `RETINUE_PG_REQUIRED=1` turns a skip into a failure, which is the negative control that keeps the
 lane from being vacuous.
 
-> **This lane has never executed, anywhere.** There is no Docker on the machine this was built on
+> **As of 2026-08-12 this lane had never executed, anywhere.** There is no Docker on the machine this was built on
 > and an ephemeral cluster would not start there, so every Postgres statement in this repository is
 > code that has been read and never run. `.github/workflows/ci.yml` is its first execution. Treat
 > the schema, the adapter and the enforcement tests accordingly until that run is green.
@@ -128,7 +132,7 @@ constructs would be evidence about a session the fleet does not run. The script 
 of how those payloads were taken. A missing payload is therefore a broken checkout, not a lane
 awaiting its turn, and the tests that read them fail rather than skip.
 
-Both live captures have now run, once each, on the same day. The demo's output,
+The judge capture and the demo have now run, once each, on the same day. The demo's output,
 `fixtures/payloads/captured_ask.json`, is the one fixture that could never have been hand-authored
 into existence, because its provenance is the point: it is a real hook payload from a real session
 in which a send tool was offered, a gated specialist tried to use it, and the hook held it for a
@@ -226,7 +230,8 @@ it, and it is a named gap rather than a resolved one.
 ## What the live captures settled
 
 Three live capture runs of the P1 smoke, at claude-agent-sdk 0.2.130 with bundled CLI 2.1.222. The
-fixtures kept are all from one session, under `fixtures/payloads/`, and they are the frozen capture
+fixtures kept from those runs are all from one session (the captured P1 family under
+`fixtures/payloads/`, which now also holds the P4 demo's ask from a second session), and they are the frozen capture
 described above. What they settled, from real payloads rather than by reasoning:
 
 - **`agent_type` exists, and is spelled `research`.** The hook routes on that exact string, and
@@ -286,14 +291,16 @@ configuration is not canonical whatever it happens to show.
 ## Fixture provenance limit
 
 Fixtures here are hand-authored unless their own `meta` says `captured`, and the captured list is
-short: the P1 session payloads, and since 2026-08-12 the judge verdicts. **Over hand-authored
+short: the P1 session payloads, and since 2026-08-12 the judge verdicts and the demo's captured
+ask. **Over hand-authored
 fixtures, every number this repository produces is a demonstration of a protocol, not a measured
 claim about model behaviour.** Both halves of that sentence are load-bearing: the first says how
 those fixtures were made, and the second says what follows, which is that no figure computed over
 them may be read as an observation of a model. The gold rankings and the drafts' ground truth are
 in that class.
 
-The judge verdicts are the one crossing of that line, and the crossing is dated:
+The judge verdicts are the one captured fixture a computed FIGURE rests on, and the crossing is
+dated:
 `scripts/judge_capture.py` ran once on 2026-08-12, so the verdict column is a captured judge's
 answer, frozen at the library version and model id stamped in the fixture's own `meta`. The drafts
 and their ground truth are still one author's judgment. What the capture bought is stated at its

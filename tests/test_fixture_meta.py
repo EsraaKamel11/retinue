@@ -327,12 +327,17 @@ def _capture(session: str | None = None) -> str:
     return body + (f', "payload": {{"session_id": "{session}"}}}}' if session else "}")
 
 def test_two_capture_families_are_two_corpora_rather_than_one_mixed_one(tmp_path):
-    """The P4 demo's fixture, in the shape it will actually have.
+    """Two live runs are two corpora, held over planted payloads in their RAW shape.
 
-    The demo is a second live run and its `captured_ask.json` therefore carries a `session_id` the
-    smoke's payloads do not. Read tree-wide, that is two sessions and the mixed-corpus rule reports
-    a correct capture; read per family, it is two corpora, which is what it is. This test is the one
-    that fails if the rule is ever put back the way it was.
+    The demo is a second live run, so as captured its `captured_ask.json` carried a `session_id`
+    the smoke's payloads did not. Read tree-wide that is two sessions, and the mixed-corpus rule
+    would report a correct capture; read per family it is two corpora, which is what it is.
+
+    The planted payloads below keep that raw shape on purpose, and the shipped tree no longer has
+    it: every captured payload was redacted to the same literal `<session-id>` placeholder, so over
+    `fixtures/` the two families now agree by construction rather than by rule. Planting is what
+    keeps this test measuring the rule instead of the redaction. It is the one that fails if the
+    rule is ever put back the way it was.
     """
     (tmp_path / "captured_00.json").write_text(_capture("smoke-run"), encoding="utf-8")
     (tmp_path / "captured_init.json").write_text(_capture("smoke-run"), encoding="utf-8")

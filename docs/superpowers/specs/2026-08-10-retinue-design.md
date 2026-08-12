@@ -492,7 +492,11 @@ directions and no sentence in this repository leaves that ambiguous.
 - **P3 - drafting + chokepoint.** Drafting agent, send-tool wiring through `guarded_call`, the
   `pre_tool_use` pre-flight review surface, two-signal routing. **The chokepoint's first caller is
   the scripted driver; the first agent caller arrives in P4** - the boundary lands before the agent
-  it bounds, which is the published build order, stated rather than accidental.
+  it bounds, which is the published build order, stated rather than accidental. **AMENDED
+  2026-08-12: P4 arrived without it.** The demo's tool body performs no act and never calls
+  `attempt_send`, deliberately, so the chokepoint still has no caller outside its own module and
+  its tests. The build order held; the agent caller did not arrive. The plan's Task 23 section and
+  the README's chokepoint row carry the reasoning.
 - **P4 - conversation.** The conversation agent behind `"ask"`, and the live demo - which must
   assert the send tool was **offered** before claiming the hook gated it. Containment is never
   demonstrated by the absence of the thing being contained.

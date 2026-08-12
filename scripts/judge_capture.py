@@ -27,6 +27,11 @@ what to do about a captured fixture whose model-authored prose carries an em das
 narrow per-path exemption for the day one appears. It cannot be this path: `JudgeCall` is a bool and
 two floats, so nothing written here carries prose at all, and the only string in the output is a
 case name read back off the draft that produced it.
+
+That day came on 2026-08-12 by the other path, and the exemption was not needed. The demo's capture
+carries an em dash in a model-authored body, and `json` escapes it to ASCII by default, so the
+byte-level gate never sees the character while the replay decodes it back. The reservation stands
+for a capture that lands the raw bytes in a tracked file.
 """
 from __future__ import annotations
 import asyncio, json, os, sys

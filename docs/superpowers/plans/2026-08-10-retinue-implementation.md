@@ -1796,7 +1796,7 @@ say() { printf '%-40s %s\n' "$1" "$2"; }
 # equalities, for the reason the old comment gave and which has not changed: a floor raised to
 # equality reddens on the first added test and gets exempted, which is how a gate stops measuring.
 FILE_FLOOR=78   # tracked files scanned; 82 at the time of writing (was 40, against 50)
-PASS_FLOOR=230  # tests that must PASS; the tree holds 240 passed and 9 skipped (was 72, against 75)
+PASS_FLOOR=230  # tests that must PASS; the tree holds 241 passed and 9 skipped (was 72, against 75)
 
 TMP=$(mktemp -d) || { printf 'battery: could not make a temp dir\n' >&2; exit 1; }
 trap 'rm -rf "$TMP"' EXIT
@@ -1954,7 +1954,11 @@ gate "em dashes" -I "$EMD" "an em dash $EMD here"
 # evidence and editing one to satisfy a style rule is the thing fixtures/ exists to prevent; and
 # the gate is not widened to all of fixtures/, which would retire it over exactly the files most
 # likely to carry text nobody here wrote. The answer is a narrow exemption for that one path, named
-# in the commit that adds it and citing the capture. Until such a capture exists, none exists.
+# in the commit that adds it and citing the capture. That capture arrived on 2026-08-12 and needed
+# no exemption: the demo's captured body carries an em dash, and json's default ASCII escaping
+# ships it as the six-character escape backslash-u2014, which this byte-level gate does not match.
+# The value is verbatim, because the replay decodes the escape back to the true character. The
+# exemption stays reserved for a capture that lands the raw bytes in a tracked file; none exists.
 
 # Word-bounded, because a substring check is WRONG here: "provenance" contains one of the two
 # adjectives, and vendor/PROVENANCE.md records where the vendored wheel came from. Correct English
@@ -4005,6 +4009,25 @@ git commit -m "feat: conversation specialist - ConversationTurn composes Draft"
 ---
 
 ### Task 23: The live demo and the ask fixture
+
+> **AMENDED 2026-08-12, after the demo ran once.** The blocks below are the plan as written and are
+> kept as history; three things shipped differently and the tree governs.
+>
+> **The demo is not the chokepoint's first agent caller, and no such caller exists.** The Interfaces
+> line below says it is, and the embedded tool body repeats it in a comment. The shipped
+> `scripts/demo.py` never imports `attempt_send`: its tool body performs no act, because a capture
+> instrument that sends is not a capture instrument. Building a gateway, checker, registry, queues,
+> store and `ActContext` inside a manual keyed script would have put the chokepoint's first agent
+> call on a path whose first execution is a live run nobody has done. `topology.py` and the README's
+> chokepoint row both state that `attempt_send` still has no caller outside its own module and its
+> tests. This is the largest divergence in this plan and it went undated until this note.
+>
+> **The replay test fails on absence rather than skipping.** The skipif below was right while the
+> capture had not been taken; once the capture was tracked, "not yet run" stopped being true, and a
+> skip whose printed reason is false is worse than no skip at all.
+>
+> **Step 3's expected SKIPPED described the pre-run state.** The suite now passes that test against
+> the tracked capture.
 
 **Files:**
 - Create: `scripts/demo.py`, `tests/boundary/test_ask_replay.py`

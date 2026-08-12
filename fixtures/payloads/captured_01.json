@@ -5,7 +5,8 @@
    "cli": "2.1.222"
   },
   "redacted": [
-   "manual: session_id, prompt_id, tool_use_id, agent_id, cwd and transcript_path replaced with shape-preserving placeholders, consistently across the whole P1 family so it still reads as ONE session. The identifiers are the operator's; nothing any rule or claim reads depends on their values."
+   "manual: session_id, prompt_id, tool_use_id, agent_id, cwd and transcript_path replaced with shape-preserving placeholders, consistently across the whole P1 family so it still reads as ONE session. The identifiers are the operator's; nothing any rule or claim reads depends on their values.",
+   "kept: tool_input.file_path spells the repository's absolute location on the capture machine. It carries no user segment, and masking it would edit the evidence rather than the identifiers, which is the line this repository draws between the two."
   ]
  },
  "payload": {
