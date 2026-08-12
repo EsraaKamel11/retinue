@@ -213,7 +213,7 @@ STALE="claude-[23]|gpt-""4"
 gate "stale model ids" -IE "$STALE" "model: claude-""2" "model: claude-""3" "model: gpt-""4"
 
 # Client and organisation tokens. The list lives OUTSIDE this repository (untracked, ignored by
-# name in .gitignore): a tracked list would ship into the reviewer's clone the very tokens it
+# name in .gitignore): a tracked list would ship into the reader's clone the very tokens it
 # exists to keep out. So the pass is optional by design, it SAYS when it did not run rather than
 # reporting an "ok" it never earned, and a hit prints [redacted] rather than the token itself.
 # The cost of that design, stated where it is decided: an untracked list can never reach CI, so

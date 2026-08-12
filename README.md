@@ -3,10 +3,11 @@
 An orchestrated fleet of three specialist agents - research, drafting, conversation - around an
 imported deterministic boundary, with a Postgres relationship ledger, a matching integration, and
 an evaluation harness. It is the system a founding engineer would build for agent-run,
-relationship-led outreach: the agent layer, the eval gate that decides what agents may do alone,
-and the matching engine behind them. Determinism is the doctrine and keys are incidental, so the
-default lane needs no running service, live runs exist only to capture evidence once, and no test
-contacts a model or a network.
+relationship-led outreach: the agent layer, the gate that decides what agents may do alone and the
+evals behind it, and the matching engine beneath them. Determinism is the doctrine and keys are
+incidental, so the default lane needs no running service, live runs exist only to capture evidence
+once, and no test contacts a model or a network. Clone it, `pip install -r requirements.txt`,
+`python -m pytest`: that is the whole default lane.
 
 Both halves of that sentence were looser before, in the two places a skeptic would press first. It
 said the default lane is "dependency-free", against five declared runtime dependencies including
@@ -14,17 +15,24 @@ said the default lane is "dependency-free", against five declared runtime depend
 it said "nothing in CI contacts a model or a network", while `.github/workflows/ci.yml` runs
 `pip install -r requirements.txt` on every job. The job reaches PyPI. No test reaches anything.
 
-The design spec is `docs/superpowers/specs/2026-08-10-retinue-design.md` and it governs. Where this
-file and the spec disagree, the spec wins.
+The design spec is `docs/superpowers/specs/2026-08-10-retinue-design.md` and it governs design
+intent: where this file and the spec disagree about what the system is meant to be, the spec wins.
+Build status runs the other way. The spec's section 12 table is the seed this file's
+Designed-vs-Built table replaced, and it still reads as it did the day the spec was written, so on
+what is actually built the table at the bottom of this file is the authority.
 
-**Status: P1 through P4 are built. Four capabilities the design names are not.** P1 is the research
+**Status: P1 through P4 are built. Six rows in the table stay Designed.** P1 is the research
 spine; P2 the matching integration, the ranking evaluators, the frozen-verdict replay and the
 block-stripped control; P3 the drafting specialist, the chokepoint, the pre-flight review surface
 and the durable review queue; P4 the conversation specialist and the live demo. The
 Designed-vs-Built table at the bottom is the authority on which capability is which, and it is not
 a summary of this sentence: a status claim and a row that disagree is the defect the table exists
-to catch, and the row is what gets fixed. The four capabilities that stay Designed say so there, by
-name, with the reason.
+to catch, and the row is what gets fixed. The six Designed rows say so there, by name, with the
+reason: four capabilities this design added (the approval bridge, the ladder tier,
+contested-quantity rendering, the weights-update sketch) and two notes inherited from the library
+(the sliding-window contact limit, store unification). An earlier version of this sentence counted
+four, written before the approval bridge and the ladder tier joined the table, which is the
+count-versus-row disagreement the previous sentence describes.
 
 Four things below are built and have never executed anywhere: the Postgres lane, the judge capture,
 the live demo, and CI itself. Each says so where it is documented, and none of them is described
@@ -46,38 +54,6 @@ purity-audit tooling and its test suite do not travel with it and this repositor
 they do. This repository adds no policy code of its own; the import surface it depends on is the
 declared contract in spec section 6.1, and the substitute for a purity audit here is import
 discipline enforced as AST rules (`tools/fleet_audit.py`).
-
-## Why not `pydantic-ai-harness`
-
-`pydantic-ai-harness` (PyPI; `github.com/pydantic/pydantic-ai-harness`) is the official capability
-library for pydantic-ai. This repository is built on pydantic-ai and does not use it, and the
-reason is design rather than compatibility. Version 0.18.1, read on 2026-08-11, and the date is
-stated because a 0.x package that ships breaking changes between minor releases dates any claim
-made about it: at that version the harness wants `pydantic-ai-slim>=2.23.0` on Python >=3.10, while
-this repository pins `pydantic-ai>=2.23` on Python >=3.11, so adoption is possible and nothing
-below is a compatibility excuse.
-
-`ToolGuardrail` guards the tools a **pydantic-ai Agent** executes. This fleet's act boundary sits at
-the Claude Agent SDK's `PreToolUse` hook, because the SDK is the runtime executing the fleet's
-tools, and the chokepoint is `attempt_send` wrapping the imported `guarded_call`. Three execution
-layers, and the guardrail belongs to the one the acts do not travel through. `ToolGuardrail` is a
-wiring point rather than a policy in any case, since the caller supplies the callable: adopting it
-would add a place to call the imported engine from, and would not replace the engine.
-
-Two convergences are worth more than the code. The harness **deliberately declines** to ship a
-prompt-injection detector, on the reasoning that injection is ordinary language, so a pattern list
-catches the examples and misses the attack, and a check that reads as protection without being it
-is worse than none at all. That is this repository's own doctrine, reached independently. And the
-harness's `hidden=`, which drops a tool from the definitions the model sees, against a visible
-refusal, is the same distinction as the session-roster ceiling here: the research specialist has no
-outbound tool at all rather than a refused one.
-
-One question is carried open rather than answered. Policy denials here are terminal because
-chaperone's own README documents the `requires_approval` resume round trip as unsafe, since
-`override_args` substitutes before re-validation. The harness documents that same round trip and
-states that on the resumed run the guard is re-evaluated and every verdict except `approve` still
-applies. Whether that closes the hole is unverified in either direction; no run here has settled
-it, and it is a named gap rather than a resolved one.
 
 ## Install
 
@@ -106,8 +82,10 @@ about a version no one has executed this suite on.
 
 **Postgres lane** - keyed on `RETINUE_PG_DSN`. Unset, it skips with a printed reason. Set, the same
 contract tests run against real Postgres alongside the enforcement tests only a real database can
-earn: the unique idempotency key, the append-only trigger, concurrent append, the durable
-review-queue sink, and the plan assertion that the projection's hot query uses the named index.
+earn, four tests holding five claims: the append-only trigger, the plan assertion that the
+projection's hot query uses the named index, the durable review-queue sink, and one test that holds
+the unique idempotency key and concurrent append together, because exactly-one-wins under
+concurrency is the uniqueness claim under load.
 `RETINUE_PG_REQUIRED=1` turns a skip into a failure, which is the negative control that keeps the
 lane from being vacuous.
 
@@ -141,7 +119,7 @@ is frozen, because `fixtures/payloads/` records the P1 topology as it stood, a r
 ceiling could not reproduce it, and a capture taken from an options shape nothing else in the tree
 constructs would be evidence about a session the fleet does not run. The script stays as the record
 of how those payloads were taken. A missing payload is therefore a broken checkout, not a lane
-awaiting its turn, and the two tests that read them fail rather than skip.
+awaiting its turn, and the tests that read them fail rather than skip.
 
 The other two have never run, and nothing here rests on pretending otherwise. The judge capture's
 output, `fixtures/verdicts/judge_verdicts.json`, is hand-authored and marked provisional, and its
@@ -190,7 +168,7 @@ The plan's Task 11 section embeds this script verbatim, and a test in the defaul
 two byte-identical, so a plan describing gates the script no longer has is a red suite.
 
 The client-and-organisation token pass reads `tools/banned_tokens.txt`, which is **untracked and
-gitignored on purpose**: a tracked list would ship into a reviewer's clone the very tokens it
+gitignored on purpose**: a tracked list would ship into a reader's clone the very tokens it
 exists to keep out. The battery therefore runs without it and says the pass did not run, rather
 than reporting an "ok" it did not earn, and a hit prints `[redacted]` rather than the token. A list
 that exists but holds no entries reddens, since an empty list is a mistake and not a policy. The
@@ -201,6 +179,38 @@ Spec section 11 names one more grep family, marketing figures, which is delibera
 it has no reliable textual signature, so a pattern loose enough to catch one reddens on correct
 text. That intent is served by a hand-diff pass over invented figures instead, and the omission is
 written into `tools/battery.sh` beside the gates rather than left to be noticed.
+
+## Why not `pydantic-ai-harness`
+
+`pydantic-ai-harness` (PyPI; `github.com/pydantic/pydantic-ai-harness`) is the official capability
+library for pydantic-ai. This repository is built on pydantic-ai and does not use it, and the
+reason is design rather than compatibility. Version 0.18.1, read on 2026-08-11, and the date is
+stated because a 0.x package that ships breaking changes between minor releases dates any claim
+made about it: at that version the harness wants `pydantic-ai-slim>=2.23.0` on Python >=3.10, while
+this repository pins `pydantic-ai>=2.23` on Python >=3.11, so adoption is possible and nothing
+below is a compatibility excuse.
+
+`ToolGuardrail` guards the tools a **pydantic-ai Agent** executes. This fleet's act boundary sits at
+the Claude Agent SDK's `PreToolUse` hook, because the SDK is the runtime executing the fleet's
+tools, and the chokepoint is `attempt_send` wrapping the imported `guarded_call`. Three execution
+layers, and the guardrail belongs to the one the acts do not travel through. `ToolGuardrail` is a
+wiring point rather than a policy in any case, since the caller supplies the callable: adopting it
+would add a place to call the imported engine from, and would not replace the engine.
+
+Two convergences are worth more than the code. The harness **deliberately declines** to ship a
+prompt-injection detector, on the reasoning that injection is ordinary language, so a pattern list
+catches the examples and misses the attack, and a check that reads as protection without being it
+is worse than none at all. That is this repository's own doctrine, reached independently. And the
+harness's `hidden=`, which drops a tool from the definitions the model sees, against a visible
+refusal, is the same distinction as the session-roster ceiling here: the research specialist has no
+outbound tool at all rather than a refused one.
+
+One question is carried open rather than answered. Policy denials here are terminal because
+chaperone's own README documents the `requires_approval` resume round trip as unsafe, since
+`override_args` substitutes before re-validation. The harness documents that same round trip and
+states that on the resumed run the guard is re-evaluated and every verdict except `approve` still
+applies. Whether that closes the hole is unverified in either direction; no run here has settled
+it, and it is a named gap rather than a resolved one.
 
 ## What the live captures settled
 
@@ -213,9 +223,11 @@ described above. What they settled, from real payloads rather than by reasoning:
   would collapse to its main-thread arm and the ask branch would be dead code, silently. A default
   lane test asserts a captured payload carries it.
 - **`tools=` restricts; `allowed_tools=` only pre-approves.** Five names were declared and the
-  session resolved four (`Task, Glob, Grep, Read`), with no CLI default surviving beside them. In
-  the same `system:init`, the allow list held the spawn names alone while `Glob`, `Grep` and `Read`
-  resolved into the session anyway. So the honest bound is the session ceiling, not the allow list.
+  session resolved four (`Task, Glob, Grep, Read`), with no CLI default surviving beside them. That
+  session's options held the spawn names alone in the allow list (the allow list is options-side,
+  so it is not a field of the captured payload), and the captured `system:init` shows `Glob`,
+  `Grep` and `Read` resolved into the session anyway. So the honest bound is the session ceiling,
+  not the allow list.
   (Spec section 3 also records the orchestrator actually calling `Glob` under that allow list. That
   payload came from an earlier run in the series and is deliberately not in the tree: the fixtures
   were reduced to a single session so two capture runs could not be mixed into one corpus. The
@@ -286,7 +298,7 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Capability | Status |
 |---|---|
 | Deterministic act boundary, checker, handoff, queues, audit chain | **Built (imported: `chaperone.gates`, `chaperone.policy`, `chaperone.audit`)** |
-| Matching staging | **Built (imported: `chaperone.matching`)** - `src/retinue/matching/integrate.py` imports `filters` and `rank`. The row said "staging + ablation harness"; nothing here runs an ablation, and the word appears in no other tracked file. Corrected rather than left, because this table is the authority. |
+| Matching staging | **Built (imported: `chaperone.matching`)** - `src/retinue/matching/integrate.py` imports `filters` and `rank`. The row said "staging + ablation harness"; nothing here runs an ablation. The phrase survives in the spec's section 12 seed table and inside the vendored wheel, which packages the library's own copy; it is corrected here because on build status this table is the authority. |
 | The library's own purity audit | **Not imported.** The wheel ships `src/chaperone` only; the source repository's `tools/` and `tests/` do not travel. |
 | Orchestration options + hook + routing | **Built (P1)** - `src/retinue/orchestration/topology.py`, `src/retinue/boundary/hook.py` |
 | Research agent + ResearchBrief contract | **Built (P1)** - `src/retinue/specialists/research.py`, `src/retinue/specialists/failures.py` |
@@ -298,7 +310,7 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The replay machinery is built and green against a hand-authored, provisional verdict set; the capture that would replace it has never run. |
 | Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. The checker lane, the pre-flight surface and the review queue are reachable only through it, so they have no production caller either. |
 | Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres and has never executed anywhere. |
-| Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo is written and runnable and has never run, so `captured_ask.json` does not exist and one test skips for that reason. **That skip has a cost worth naming:** the parked test is the only one asserting the *reason* a human is shown for a gated send. The routing decision itself is held in the default lane; the sentence in the prompt is not. |
+| Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo is written and runnable and has never run, so `captured_ask.json` does not exist and one test skips for that reason. **That skip's cost is narrower than it looks:** the reason wording is held in the default lane over a hand-authored payload, and the parked test is the only one asserting it over a captured one. |
 | **Ask-to-chokepoint approval bridge** | **Designed only, and it is the seam the two lanes meet at.** Nothing mints, transports or validates an approval token. `build_act_context` defaults it, the imported check is presence-only, and its violation class is terminal, so a composed system denies every send unless a caller invents a token - which would reduce "a human approved this act" to "the caller passed a non-None string". An SDK permission grant hands the tool body no evidence it can carry, so this is an unanswered design question rather than unwritten wiring. The spec asserted this as sourced until 2026-08-12. |
 | **Tier from the ladder decision** | Designed only - `chaperone/gates/ladder.py` ships in the wheel and nothing here imports it. Tier arrives as a bare int parameter. |
 | Contested-quantity rendering + thin-support badge | Designed only - the contract carries `quantity_key` so a conflict can be held, and the prompt instructs the model to group by it, but nothing renders a Contested quantity or a thin-support badge. Annotate-not-arbitrate is the commitment; surfacing the annotation is unbuilt. |

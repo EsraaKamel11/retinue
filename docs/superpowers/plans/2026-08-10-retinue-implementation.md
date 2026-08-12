@@ -1971,7 +1971,7 @@ STALE="claude-[23]|gpt-""4"
 gate "stale model ids" -IE "$STALE" "model: claude-""2" "model: claude-""3" "model: gpt-""4"
 
 # Client and organisation tokens. The list lives OUTSIDE this repository (untracked, ignored by
-# name in .gitignore): a tracked list would ship into the reviewer's clone the very tokens it
+# name in .gitignore): a tracked list would ship into the reader's clone the very tokens it
 # exists to keep out. So the pass is optional by design, it SAYS when it did not run rather than
 # reporting an "ok" it never earned, and a hit prints [redacted] rather than the token itself.
 # The cost of that design, stated where it is decided: an untracked list can never reach CI, so
@@ -2037,8 +2037,8 @@ exit $fail
 Create `tools/banned_tokens.txt` locally with one token per line, copied from the governing plan's
 list (maintained outside this repo). **The file is NEVER committed** - add `tools/banned_tokens.txt`
 to `.gitignore` in this task. A tracked list would ship the very tokens it bans into the repo a
-reviewer receives; that is why the battery treats the file as optional (a fresh clone runs the
-battery without the token pass - those greps belong to the author's pipeline, not the reviewer's)
+reader receives; that is why the battery treats the file as optional (a fresh clone runs the
+battery without the token pass - those greps belong to the author's pipeline, not the reader's)
 and prints `[redacted]` on a hit rather than the token.
 
 **Fifteen changes from this task's drafted script, in three rounds, each because the draft could
@@ -3129,7 +3129,7 @@ Append to `src/retinue/ledger/projection.py`:
 **AMENDED 2026-08-11, from the Task 17 review, and the reason travels with the change.** This block
 first said money leaves as `str(Decimal)` and "the policy engine canonicalises on its side". The
 second half is true only for values the engine's regex accepts, and the sentence invited exactly the
-upstream normalisation that breaks it. Measured end to end by the reviewer: a `Touchpoint` accepts
+upstream normalisation that breaks it. Measured end to end in review: a `Touchpoint` accepts
 `payload={"amount": "2.5E+5"}` at the write barrier, `project_record` yields `Decimal("2.5E+5")`,
 `str()` emits `"2.5E+5"`, and `normalize_money` fullmatches a decimal-digits regex which that fails,
 so the field is DROPPED from `record_values` and a draft stating a figure the record actually holds

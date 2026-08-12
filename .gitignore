@@ -12,6 +12,6 @@ venv/
 .claude/settings.local.json
 .env
 # The battery's client-and-organisation token list, kept OUT of the repository on purpose: a
-# tracked list would ship into a reviewer's clone the very tokens it exists to keep out. The
+# tracked list would ship into a reader's clone the very tokens it exists to keep out. The
 # battery treats the file as optional and reports when the pass did not run.
 tools/banned_tokens.txt
