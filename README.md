@@ -11,7 +11,7 @@ contacts a model or a network.
 The design spec is `docs/superpowers/specs/2026-08-10-retinue-design.md` and it governs. Where this
 file and the spec disagree, the spec wins.
 
-**Status: P1 through P4 are built, and four capabilities inside them are not.** P1 is the research
+**Status: P1 through P4 are built. Four capabilities the design names are not.** P1 is the research
 spine; P2 the matching integration, the ranking evaluators, the frozen-verdict replay and the
 block-stripped control; P3 the drafting specialist, the chokepoint, the pre-flight review surface
 and the durable review queue; P4 the conversation specialist and the live demo. The
@@ -85,9 +85,8 @@ read. The lane holds the options-shape tests, the hook callback replayed against
 the specialist tests under pydantic-ai's own offline doubles, the ledger contract tests against an
 in-memory reference store, the matching integration against the imported staging, the ranking
 evaluators over a hand-judged gold shortlist across the seeded synthetic roster, the frozen judge
-replay, the block-stripped control,
-the chokepoint's ordering and denial tests, the pre-flight two-signal routing, the review queue's
-in-memory half, and the audit's own planted-violation tests.
+replay, the block-stripped control, the chokepoint's ordering and denial tests, the pre-flight
+two-signal routing, the review queue's in-memory half, and the audit's own planted-violation tests.
 `.github/workflows/ci.yml` runs it on 3.11 and 3.13, then the battery.
 
 **Postgres lane** - keyed on `RETINUE_PG_DSN`. Unset, it skips with a printed reason. Set, the same
