@@ -1,8 +1,9 @@
 # retinue Implementation Plan (P1-P4)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
-> (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
-> checkbox (`- [ ]`) syntax for tracking.
+> Executed task by task: each task implemented against its tests, then reviewed independently
+> before the next began. Every task carries a red-arm matrix in its commit body, on the rule that a
+> constraint nobody watched fail is a constraint nobody has checked. The checkboxes are the task
+> list.
 
 **Goal:** The full retinue build across the spec's four phases - P1 the research spine, P2
 matching plus the evaluation harness, P3 drafting plus the chokepoint, P4 conversation plus the
