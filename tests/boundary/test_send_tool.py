@@ -150,6 +150,47 @@ def test_clean_send_confirm_true_is_confirmed_no_escalation(tmp_path):
     assert kw["store"].touchpoints_for("inv-1")[0].delivery_status == "CONFIRMED"
     assert rows == []
 
+def test_a_send_confirmed_failed_is_failed_and_escalates_nothing(tmp_path):
+    """The THIRD arm of the tri-state, which the two tests above never enter.
+
+    `confirm` answering False is a send that definitively did not leave. Both tests above answer
+    True or None, so deleting the FAILED arm entirely - leaving `CONFIRMED if confirmed is True
+    else UNVERIFIABLE` - records a failed send as unverifiable and hands a human a work item for a
+    message that never went out, with the whole file still green. Measured: that is a row in this
+    commit's matrix and it reddened nothing until this test existed.
+
+    Nothing is escalated, and that is the point of separating the two states. UNVERIFIABLE means
+    nobody knows, which is a question for a person; FAILED means the answer is known and it is no.
+
+    `out.allowed` stays True: the gate allowed the call, and delivery is a separate axis from
+    permission. A failed delivery is not a policy denial and must not be recorded as one.
+    """
+    kw, rows = harness(tmp_path)
+    out = attempt_send(key="k13", draft=draft(), record=Record(fields={}),
+                       context=ctx(), confirm=lambda v: False, **kw)
+    assert out.allowed
+    assert kw["store"].touchpoints_for("inv-1")[0].delivery_status == "FAILED"
+    assert rows == []
+
+def test_the_boundary_escalation_carries_the_body_it_blocked(tmp_path):
+    """The reviewer's whole work item, and the reason review_queue.py exists at all.
+
+    That module's docstring states it: the audit log records THAT a draft was redirected and
+    carries no text, while the queue holds the blocked body. Somebody holding the log and not the
+    queue knows a redirect happened and cannot read what was redirected. Nothing asserted the body
+    survived into a BOUNDARY escalation, so `blocked_body=""` passed every test in this file and
+    produced exactly the reviewer this repository says it refuses to produce.
+
+    The pre-check path, because `_boundary_handoff` is one function shared by both boundary
+    escalations, so pinning either call site pins the constructor. The engine's own escalations
+    come from the imported `build_handoff` and are not this module's to hold.
+    """
+    kw, rows = harness(tmp_path)
+    body = "Following up on our conversation."
+    attempt_send(key="k14", draft=draft(body=body), record=Record(fields={}),
+                 context=None, confirm=lambda v: True, **kw)
+    assert rows[0][1]["blocked_body"] == body
+
 def test_the_ledger_row_carries_a_byte_count_and_no_message_text(tmp_path):
     """Message bodies live in the review queue's Handoff and never in the ledger.
 
