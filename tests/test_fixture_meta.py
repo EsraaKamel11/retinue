@@ -13,13 +13,16 @@ does not forbid the edit - it forbids making it silently: a captured fixture car
 directory path must say in its own meta that it was redacted.
 """
 import ast
+import fnmatch
 import json
 import re
 from pathlib import Path
 import pytest
 
-FIX = Path(__file__).resolve().parents[1] / "fixtures"
+ROOT = Path(__file__).resolve().parents[1]
+FIX = ROOT / "fixtures"
 TESTS = Path(__file__).resolve().parent
+SCRIPTS = ROOT / "scripts"
 SMOKE = "RETINUE_LIVE=1 python scripts/capture_smoke.py"
 
 #: Exactly one of these, never two. "At least one" would let a fixture declare itself both
@@ -31,9 +34,48 @@ _PROVENANCE = ("provisional", "captured", "hand_authored")
 #: keys on the `captured_` prefix and so catches a capture calling itself a placeholder, while the
 #: staleness that actually occurred wears the `provisional_` prefix - a placeholder outliving the
 #: capture meant to replace it. A note reworded past this phrase goes silent, which is why the arm
-#: carries a planted control. The P4 demo capture earns a row here when it defines its output
-#: names; until it runs, `provisional_send.json`'s note is still true.
+#: carries a planted control.
+#:
+#: THE P4 DEMO EARNS NO ROW HERE, and the reason is a measurement rather than a deferral. That
+#: capture's output name is now defined - `captured_ask.json`, written by `scripts/demo.py` - so the
+#: condition this comment used to wait on has been met and the answer is still no. `guarded_call`
+#: passes `{"body": draft.body}` as the send tool's WHOLE `tool_input`, and the demo's tool declares
+#: that same one-key schema, so no capture taken from the current send-tool argument shape can carry
+#: the record, cited fields, approval token and jurisdiction that `provisional_send.json` supplies.
+#: The demo capture therefore retires that fixture's ASK arm and cannot retire its DENY-LANE arm,
+#: where `test_main_thread_send_still_runs_the_deterministic_lane` reads a constructed 9M-vs-8M
+#: mismatch back as `figure_not_in_record`. A row added anyway would redden the suite on the first
+#: real capture, demanding the retirement of a fixture that has to survive it. Scoped to the current
+#: argument shape on purpose: a later task that widens the schema may change this, and would then
+#: own the row.
 _SUPERSEDED_BY = (("P1 capture smoke", "captured_*.json"),)
+
+#: Each capture SCRIPT's outputs, as a FAMILY. `captured_sessions_mixed` below asks that a family
+#: hold one session, and the reason it is per-family rather than per-tree is the P4 demo: it is a
+#: second, later, deliberately separate run, so its fixture carries a different `session_id` by
+#: construction and a tree-wide rule would report a correct capture as a mixed corpus. The hazard
+#: the rule was built for is untouched and is internal to one family - a smoke re-run writing fewer
+#: payloads leaves the previous run's higher-numbered files beside the new ones.
+#:
+#: The membership rule is what stops this being a weakening. Every `captured_*.json` must match
+#: EXACTLY ONE family: matching none is a finding, so a future capture cannot escape the
+#: single-session check by landing under an unlisted name, and matching two is a finding, so a
+#: family pattern widened to `captured_*.json` cannot swallow its neighbours and make the check
+#: vacuous by putting every file in one bucket that is then allowed one session per bucket.
+#:
+#: `captured_[0-9]*.json` rather than a two-digit form: the smoke writes `captured_{i:02d}.json`, and
+#: a run long enough to reach three digits would otherwise leave every file past the ninety-ninth
+#: unfamilied.
+_CAPTURE_FAMILIES = (
+    ("P1 capture smoke", ("captured_[0-9]*.json", "captured_init.json")),
+    ("P4 demo", ("captured_ask.json",)),
+)
+
+def _families_of(name: str, families=_CAPTURE_FAMILIES) -> list[str]:
+    """Every family this filename matches. A list rather than a first hit, because "matches two"
+    is a finding and a `next(...)` would silently report the first."""
+    return [label for label, patterns in families
+            if any(fnmatch.fnmatch(name, pat) for pat in patterns)]
 
 #: Matched against the RAW file text, not the decoded values: a Windows path inside JSON is
 #: always backslash-escaped, so `C:\\Users\\` is what is actually on disk. A redacted fixture
@@ -41,12 +83,17 @@ _SUPERSEDED_BY = (("P1 capture smoke", "captured_*.json"),)
 #: point. Only the pairing of a home path with no declared redaction is a finding.
 _HOME_PATH = re.compile(r"[A-Za-z]:\\\\Users\\\\|/home/|/Users/")
 
-def _provenance_findings(root: Path) -> list[str]:
+def _provenance_findings(root: Path, families=_CAPTURE_FAMILIES) -> list[str]:
     """One named rule per finding, over ANY fixture tree - so each rule can be shown firing on a
     planted one. Silence over the real tree is what a correct rule and an unreachable rule look
-    like alike."""
+    like alike.
+
+    `families` is a parameter for the same reason `root` is: the family-overlap rule cannot be shown
+    firing by planting files, only by planting a bad tuple, and patching the module-level one would
+    leave the shipped tuple untested in the same run.
+    """
     findings: list[str] = []
-    sessions: dict[str, list[str]] = {}
+    sessions: dict[str, dict[str, list[str]]] = {}
     for p in sorted(root.rglob("*.json")):
         text = p.read_text(encoding="utf-8")
         doc = json.loads(text)
@@ -72,28 +119,48 @@ def _provenance_findings(root: Path) -> list[str]:
                 findings.append(f"captured_stamp_unresolved: {p.name}: {stamp}")
             if _HOME_PATH.search(text) and not meta.get("redacted"):
                 findings.append(f"home_path_without_redaction: {p.name}")
+            family = _families_of(p.name, families)
+            if not family:
+                findings.append(f"captured_family_unnamed: {p.name}")
+            elif len(family) > 1:
+                findings.append(f"captured_family_ambiguous: {p.name} matches {family}")
             session = (doc.get("payload") or {}).get("session_id")
             if session:
-                sessions.setdefault(session, []).append(p.name)
+                # Keyed by the file's own name when the family is not exactly one, so an unfamilied
+                # or double-claimed capture is never quietly pooled with a real family - it is
+                # already a finding above, and pooling it could turn a second finding on or off.
+                key = family[0] if len(family) == 1 else f"<{p.name}>"
+                sessions.setdefault(key, {}).setdefault(session, []).append(p.name)
         if p.name.startswith("provisional_"):
             note = meta.get("note") or ""
             for phrase, pattern in _SUPERSEDED_BY:
                 if phrase in note and any(root.rglob(pattern)):
                     findings.append(f"provisional_superseded_by_capture: {p.name}")
-    if len(sessions) > 1:
-        # A later run writing fewer payloads leaves the previous run's higher-numbered files in
-        # place. The write happens in a `finally` precisely because a live capture is not
-        # repeatable, so the guard against mixing two corpora belongs here rather than in a
-        # destructive pre-clear inside the script.
-        findings.append(f"captured_sessions_mixed: {sorted(sessions.values())}")
+    for label, by_session in sorted(sessions.items()):
+        if len(by_session) > 1:
+            # A later run writing fewer payloads leaves the previous run's higher-numbered files in
+            # place. The write happens in a `finally` precisely because a live capture is not
+            # repeatable, so the guard against mixing two corpora belongs here rather than in a
+            # destructive pre-clear inside the script. Per FAMILY, because two capture scripts are
+            # two corpora and always were - see `_CAPTURE_FAMILIES`.
+            findings.append(f"captured_sessions_mixed: {label}: {sorted(by_session.values())}")
     return findings
 
 #: Every RETINUE_LIVE-gated script. Each one is manual, keyed and not repeatable for free, so a test
 #: module importing one could spend a key or overwrite a captured fixture as a side effect of mere
 #: collection. A tuple rather than the single literal this began as: every such script's docstring
 #: claims "never imported by tests", and a rule naming only the first of them left that claim
-#: asserted and unenforced for the rest - which is the shape of gap this file exists to close.
-_GATED_SCRIPTS = ("capture_smoke", "judge_capture")
+#: asserted and unenforced for the rest - which is the shape of gap this file exists to close. That
+#: gap reopens by ADDITION rather than by edit, so `test_every_live_gated_script_is_named_in_the_rule`
+#: reads `scripts/` off disk and holds it against this tuple; `demo` arrived through that line going
+#: red rather than through anyone remembering.
+#:
+#: `demo` is a SHORT entry where the other two are distinctive, and the matcher below is a substring
+#: test over imported module names. No import under `tests/` contains it today, checked rather than
+#: assumed, but `from x import demo_helpers` would be reported as importing a gated script. The cost
+#: of that false positive is a loud test naming the wrong file, which is the safe direction here;
+#: the note exists so the next reader diagnoses it in one step instead of suspecting the rule.
+_GATED_SCRIPTS = ("capture_smoke", "demo", "judge_capture")
 
 def _gated_script_import_findings(root: Path) -> list[str]:
     """An import STATEMENT naming a gated script, told apart from a mention of one.
@@ -134,6 +201,26 @@ def _init_findings(init: dict) -> list[str]:
     # `setting_sources=[]` does NOT clear `mcp_servers`, so those servers are listed in a
     # canonical capture too. Being listed is harmless; a tool of theirs resolving into the session
     # is not, and that is the property the send-free claim actually rests on.
+    #
+    # TASK 22 LEFT THIS RULE'S FATE TO TASK 23, AND TASK 23 LEAVES IT EXACTLY AS IT IS. The concern
+    # was that a P4 capture, taken with the widened ceiling and the retinue server connected, would
+    # resolve `mcp__retinue__send_message` into the session and be reported here for a name this
+    # repository puts there deliberately. The premise is right and the conclusion does not follow,
+    # because of WHICH FILE this rule reads. `_captured_init` opens `captured_init.json` and nothing
+    # else, and that file is the P1 smoke's output; `_refuse_if_a_send_tool_exists` makes the smoke
+    # exit before constructing a client if any send tool is named in any roster OR if `mcp_servers`
+    # is set at all. So for the one payload this rule judges, a resolved `mcp__` send tool would mean
+    # that guard was bypassed, which is a real finding and not a false one.
+    #
+    # What keeps it that way is that `scripts/demo.py` writes ONE path, `captured_ask.json`, and
+    # never `captured_init.json` - it does not overwrite the send-free capture with a send-bearing
+    # one. Excepting `SEND_TOOLS` here would have bought nothing and cost the rule its edge on the
+    # only file it looks at: the send-free session is the claim, and a rule that waves through the
+    # send tool cannot check it.
+    #
+    # The demo's own offer evidence needs no fixture. The ask capture IS the evidence, because the
+    # hook is only ever handed a call to a tool the session resolved, so a `captured_ask.json`
+    # naming a send tool is a session in which that tool was offered.
     mcp = sorted(t for t in (init.get("tools") or ()) if t.startswith("mcp__"))
     if mcp:
         findings.append(f"init_session_holds_an_mcp_tool: {mcp}")
@@ -172,13 +259,17 @@ def test_each_provenance_rule_fires_on_a_planted_tree(tmp_path):
     # A stamp that is present and says nothing.
     (tmp_path / "captured_97.json").write_text(
         '{"meta": {"captured": {"sdk": "0.2.130", "cli": "unknown"}}}', encoding="utf-8")
-    # Two captures from two different runs, which is the mixed-corpus hazard.
+    # Two captures from two different runs of the SAME script, which is the mixed-corpus hazard.
     (tmp_path / "captured_70.json").write_text(
         '{"meta": {"captured": {"sdk": "x", "cli": "y"}}, "payload": {"session_id": "run-a"}}',
         encoding="utf-8")
     (tmp_path / "captured_71.json").write_text(
         '{"meta": {"captured": {"sdk": "x", "cli": "y"}}, "payload": {"session_id": "run-b"}}',
         encoding="utf-8")
+    # A capture landing under a name no family claims, which is how a later output would otherwise
+    # escape the single-session check entirely.
+    (tmp_path / "captured_elsewhere.json").write_text(
+        '{"meta": {"captured": {"sdk": "x", "cli": "y"}}}', encoding="utf-8")
     # A placeholder naming a capture that the same tree shows has since run.
     (tmp_path / "provisional_stale.json").write_text(
         '{"meta": {"provisional": true, "note": "hand-authored; replaced by the P1 capture smoke"}}',
@@ -187,15 +278,76 @@ def test_each_provenance_rule_fires_on_a_planted_tree(tmp_path):
     for rule in ("no_meta_block", "no_provenance", "ambiguous_provenance",
                  "captured_still_provisional", "captured_without_version_stamp",
                  "captured_stamp_unresolved", "home_path_without_redaction",
-                 "captured_sessions_mixed", "provisional_superseded_by_capture"):
+                 "captured_sessions_mixed", "captured_family_unnamed",
+                 "provisional_superseded_by_capture"):
         assert rule in found, f"rule never fired: {rule}"
 
 def test_a_lone_hand_authored_marking_is_the_accepted_third_provenance(tmp_path):
-    # Without this, `hand_authored` can be deleted from the accepted set and the whole suite still
-    # passes: no fixture declares it and no planted tree plants it. A disjunct no test exercises
-    # is not a contract, and this file's entire job is provenance.
+    # Written when `hand_authored` was a disjunct no fixture used, so deleting it from the accepted
+    # set left the whole suite green. `provisional_send.json` declares it since Task 23 measured
+    # that no capture can produce that payload, so the real tree now exercises the branch too and
+    # this row has become the planted control beside it rather than its only cover.
     (tmp_path / "hand.json").write_text('{"meta": {"hand_authored": true}}', encoding="utf-8")
     assert _provenance_findings(tmp_path) == []
+
+def _capture(session: str | None = None) -> str:
+    body = '{"meta": {"captured": {"sdk": "x", "cli": "y"}}'
+    return body + (f', "payload": {{"session_id": "{session}"}}}}' if session else "}")
+
+def test_two_capture_families_are_two_corpora_rather_than_one_mixed_one(tmp_path):
+    """The P4 demo's fixture, in the shape it will actually have.
+
+    The demo is a second live run and its `captured_ask.json` therefore carries a `session_id` the
+    smoke's payloads do not. Read tree-wide, that is two sessions and the mixed-corpus rule reports
+    a correct capture; read per family, it is two corpora, which is what it is. This test is the one
+    that fails if the rule is ever put back the way it was.
+    """
+    (tmp_path / "captured_00.json").write_text(_capture("smoke-run"), encoding="utf-8")
+    (tmp_path / "captured_init.json").write_text(_capture("smoke-run"), encoding="utf-8")
+    (tmp_path / "captured_ask.json").write_text(_capture("demo-run"), encoding="utf-8")
+    assert _provenance_findings(tmp_path) == []
+
+def test_one_family_still_may_not_hold_two_sessions(tmp_path):
+    """The other direction, on the family the P4 fixture joins rather than on the smoke's.
+
+    Without this the per-family rule could be shown working only where it already worked. Two demo
+    runs cannot both land in `captured_ask.json`, so the specimen is the smoke's own family, and the
+    row above plus this one together say the rule moved from tree-wide to per-family and did not
+    simply switch off.
+    """
+    (tmp_path / "captured_00.json").write_text(_capture("run-a"), encoding="utf-8")
+    (tmp_path / "captured_init.json").write_text(_capture("run-b"), encoding="utf-8")
+    found = _provenance_findings(tmp_path)
+    assert any("captured_sessions_mixed" in f for f in found), found
+    assert any("P1 capture smoke" in f for f in found), found
+
+def test_a_family_pattern_that_swallows_another_is_a_finding(tmp_path):
+    """The membership rule's second half, which is what keeps the first half from being a hole.
+
+    A future capture script given the pattern `captured_*.json` would put every fixture in the tree
+    into one family, and a family is allowed one session - so every other family's files would be
+    read as that family's and the single-session check would go quiet over exactly the mixing it
+    exists to find. The families are passed in rather than patched onto the module, so this row does
+    not disturb the real tuple, and the second assertion is the control: the shipped families are
+    not ambiguous, so a green first assertion cannot be coming from a rule that fires on everything.
+    """
+    (tmp_path / "captured_ask.json").write_text(_capture("demo-run"), encoding="utf-8")
+    greedy = (("greedy", ("captured_*.json",)), ("P4 demo", ("captured_ask.json",)))
+    assert any("captured_family_ambiguous" in f
+               for f in _provenance_findings(tmp_path, greedy))
+    assert not any("captured_family_" in f for f in _provenance_findings(tmp_path))
+
+def test_every_shipped_capture_fixture_belongs_to_exactly_one_family():
+    """Over the REAL tree, and separate from the sweep above because it says something narrower.
+
+    `test_every_fixture_json_carries_provenance` would also catch an unfamilied fixture, mixed in
+    with every other rule. This one names the property, and it is the line a future capture script
+    trips on when it writes a name nobody added to `_CAPTURE_FAMILIES`.
+    """
+    captures = sorted(p.name for p in FIX.rglob("captured_*.json"))
+    assert captures, f"no captured fixtures under {FIX}"
+    for name in captures:
+        assert len(_families_of(name)) == 1, f"{name}: {_families_of(name)}"
 
 def test_no_test_module_imports_a_gated_script():
     """Named for the whole tuple, because it now guards the whole tuple.
@@ -212,6 +364,24 @@ def test_the_gated_script_rule_tells_an_import_from_a_mention(tmp_path):
     (tmp_path / "imports.py").write_text("from scripts.capture_smoke import main\n",
                                          encoding="utf-8")
     assert any("imports.py" in f for f in _gated_script_import_findings(tmp_path))
+
+def test_every_live_gated_script_is_named_in_the_rule():
+    """The tuple above is a hand-maintained list, and the gap it closed can reopen by addition.
+
+    Its own comment says a rule naming only the first script left the "never imported by tests"
+    claim asserted and unenforced for the rest. Adding a third gated script and forgetting the entry
+    reopens exactly that, silently: `test_the_gated_script_rule_fires_on_every_script_it_names`
+    plants one import per NAMED entry, so it goes on passing over a script nobody named.
+
+    The two sides are independent on purpose. This reads `scripts/` off disk and greps each file for
+    the environment key that gates it; the tuple is a literal. Deriving either from the other is the
+    defect this repository has hit four times, and it would make the check agree with itself.
+    """
+    key = "RETINUE_LIVE"
+    gated = sorted(p.stem for p in SCRIPTS.glob("*.py")
+                   if key in p.read_text(encoding="utf-8"))
+    assert gated, f"no {key}-gated script under {SCRIPTS}"
+    assert gated == sorted(_GATED_SCRIPTS)
 
 def test_the_gated_script_rule_fires_on_every_script_it_names(tmp_path):
     """One specimen per branch, which is the standard `tools/battery.sh` holds itself to.

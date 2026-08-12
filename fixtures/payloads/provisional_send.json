@@ -1,4 +1,6 @@
-{"meta": {"provisional": true, "note": "hand-authored; replaced by the P4 demo capture"},
+{"meta": {"hand_authored": true,
+          "note": "Constructed, and no capture can produce it: the send tool's whole tool_input is {\"body\": ...} at the chokepoint (guarded_call passes exactly that) and in the P4 demo alike, so a record, cited fields, an approval token and a jurisdiction never arrive from any session. Those keys are here to drive the imported lane's predicates: the 9M-vs-8M mismatch with the token supplied and the jurisdiction consented is what makes figure_not_in_record findings[0] for test_main_thread_send_still_runs_the_deterministic_lane. The P4 demo's captured_ask.json retires this file's ask arm and never this one. The marking said provisional and named that capture as its replacement, which was wrong from the day it was written; Task 23 defined the capture's output name and measured that it cannot replace this.",
+          "why_the_name_keeps_its_prefix": "Renaming would leave docs/superpowers/plans/2026-08-10-retinue-implementation.md describing a file that no longer exists, at four places. The prefix is a filename; the marking is the claim, and the claim is what was corrected."},
  "payload": {"tool_name": "send_message", "agent_type": "conversation",
              "tool_input": {"body": "The round is $9M.", "record": {"round_size": "8000000"},
                             "cited_fields": ["round_size"], "approval_token": "tok-1",

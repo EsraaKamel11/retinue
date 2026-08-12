@@ -77,10 +77,33 @@ AGENTS: dict[str, AgentDefinition] = {
 #: is the allow answer. The widened main-thread path is therefore no human ask, no lane refusal,
 #: and the chokepoint as the only remaining gate.
 #:
-#: Nothing is live today, and that is a bound rather than a defence. No MCP server serves either
-#: spelling anywhere in this repository and `attempt_send` has no caller outside its own module and
-#: tests, so "would still meet the chokepoint" is present tense about a chokepoint nothing in
-#: production calls. Task 23 wires the server, and this is the paragraph it has to answer.
+#: TASK 23 WIRED THE SERVER, so half of the bound that used to sit here is gone and the answer
+#: replaces it rather than sitting in a report. `scripts/demo.py` registers an in-process SDK MCP
+#: server that serves the `mcp__` spelling, so in THAT session the main thread can reach a send tool
+#: that exists. The ceiling above is why: it is shared, so conversation cannot be offered the tool
+#: unless the main thread can reach it too, and the demo cannot narrow one without losing the other.
+#:
+#: WHAT HOLDS IT, in the order the claims are worth. First, the demo's tool body performs no act:
+#: no transport, no gateway, no `attempt_send`, nothing that leaves the process. It is a capture
+#: instrument, so reaching it sends nothing. Second, and INFERRED rather than measured, labelled
+#: because the block above this one already holds itself to that line: on the path the demo exists
+#: to demonstrate the body should not be reached at all, since `decide` answers `"ask"` for
+#: conversation before the call and an unattended headless run has nobody to approve it. What a
+#: `permission_mode="default"` session with no `can_use_tool` callback does with an ask has never
+#: been run here, so that claim carries no weight the first one does not already carry, and the
+#: answer rests on the first. Third, and scoped to a payload SHAPE rather
+#: than offered as a property of the lane: the demo's tool declares `{"body": str}`, which is the
+#: chokepoint's own whole `tool_input`, and a main-thread call carrying only a body is refused by the
+#: imported lane on `act:no_approval_token`. That last one is a measurement over the shape the schema
+#: permits and not a general claim, which is the distinction the paragraph above had to walk back.
+#:
+#: The other half of the bound stands, and it is stated rather than quietly dropped: `attempt_send`
+#: still has NO caller outside its own module and tests. The demo did not become one, deliberately.
+#: Building a gateway, checker, registry, queues, store and ActContext inside a manual keyed script
+#: would put the chokepoint's first agent call on a path whose first execution is a live run nobody
+#: has done, and "would still meet the chokepoint" would go on being present tense about something
+#: nothing calls. A demo that captures what the gate does before the call is the thing this fleet can
+#: show; a chokepoint caller it cannot run is not.
 SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob", *sorted(SEND_TOOLS))
 
 def build_options(hook) -> ClaudeAgentOptions:
