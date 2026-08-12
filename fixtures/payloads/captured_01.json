@@ -5,16 +5,16 @@
    "cli": "2.1.222"
   },
   "redacted": [
-   "transcript_path: user path segment replaced with <user>"
+   "manual: session_id, prompt_id, tool_use_id, agent_id, cwd and transcript_path replaced with shape-preserving placeholders, consistently across the whole P1 family so it still reads as ONE session. The identifiers are the operator's; nothing any rule or claim reads depends on their values."
   ]
  },
  "payload": {
-  "session_id": "2a2e5072-73a5-4705-a612-c4733378d702",
-  "transcript_path": "C:\\Users\\<user>\\.claude\\projects\\D--retinue\\2a2e5072-73a5-4705-a612-c4733378d702.jsonl",
-  "cwd": "D:\\retinue",
-  "prompt_id": "50b28363-2036-4a18-ab9c-ca45ca01491c",
+  "session_id": "<session-id>",
+  "transcript_path": "<transcript-root>/<session-id>",
+  "cwd": "<repo-root>",
+  "prompt_id": "<prompt-id>",
   "permission_mode": "default",
-  "agent_id": "a1c04508c555d7421",
+  "agent_id": "<agent-id>",
   "agent_type": "research",
   "effort": {
    "level": "high"
@@ -24,6 +24,6 @@
   "tool_input": {
    "file_path": "D:\\retinue\\fixtures\\docs\\doc-1.md"
   },
-  "tool_use_id": "toolu_01Bs4pg5tV2PzW1UNzSZQFyr"
+  "tool_use_id": "<tool-use-id>"
  }
 }

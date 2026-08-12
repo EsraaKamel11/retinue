@@ -5,8 +5,14 @@ imported deterministic boundary, with a Postgres relationship ledger, a matching
 an evaluation harness. It is the system a founding engineer would build for agent-run,
 relationship-led outreach: the agent layer, the eval gate that decides what agents may do alone,
 and the matching engine behind them. Determinism is the doctrine and keys are incidental, so the
-default lane is dependency-free, live runs exist only to capture evidence once, and nothing in CI
+default lane needs no running service, live runs exist only to capture evidence once, and no test
 contacts a model or a network.
+
+Both halves of that sentence were looser before, in the two places a skeptic would press first. It
+said the default lane is "dependency-free", against five declared runtime dependencies including
+`psycopg[binary]`; the claim is that nothing needs to be RUNNING, not that nothing is installed. And
+it said "nothing in CI contacts a model or a network", while `.github/workflows/ci.yml` runs
+`pip install -r requirements.txt` on every job. The job reaches PyPI. No test reaches anything.
 
 The design spec is `docs/superpowers/specs/2026-08-10-retinue-design.md` and it governs. Where this
 file and the spec disagree, the spec wins.
