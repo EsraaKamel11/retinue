@@ -137,13 +137,27 @@ ANNOTATE_READS = frozenset({
     "pre_tool_use", "SEND_TOOL", "draft", "record", "context", "checker", "Preflight", "outcome",
     "type", "exc", "Exception", "body", "__name__", "named", "described", ": ",
     ": the exception's own message could not be rendered",
+    "an exception whose type would not name itself",
     "Draft", "Record", "ActContext", "dataclass", "frozen", "HookOutcome", "error", "str"})
 
 #: The reference shape both expected sets are held against: the module's code with nothing removed
-#: and nothing added but prose. Its job is to be an independent copy that does NOT move when the
-#: module moves, so an expected set widened to admit a new read stops matching it. The prose names
-#: the field the module refuses to read, which is the second thing this source pins: a mention is
-#: not a read, and a text search could not tell the difference.
+#: and nothing added but prose. Its job is to be an independent copy, so an expected set widened to
+#: admit a new read stops matching it. The prose names the field the module refuses to read, which
+#: is the second thing this source pins: a mention is not a read, and a text search could not tell
+#: the difference.
+#:
+#: INDEPENDENT, not immovable, and the difference is the standing cost of this pin. An earlier note
+#: here said it does not move when the module moves. It is hand-maintained and lives beside the sets
+#: it guards, so every legitimate change to the module forces an edit here too - which trains the
+#: exact motion a widening needs, on a reader who has just been told the edit is routine. The
+#: protection is that the edit must be made twice, in two shapes, by someone who would have to
+#: choose to widen both.
+#:
+#: One dependency worth naming because no pin names it: the class body is censused only because the
+#: router's parameter carries `: Preflight`. Drop that annotation from the module AND from this
+#: source AND narrow both sets, and the class body leaves the routing census with the suite green.
+#: Three coordinated edits rather than one, so it is not a disarm, but it is the thinnest thread
+#: here and it is not held by anything that would notice on its own.
 PLANTED_CLEAN_MODULE = '''
 @dataclass(frozen=True)
 class Preflight:
@@ -157,7 +171,10 @@ def annotate(draft: Draft, record: Record, context: ActContext, checker) -> Pref
         outcome = pre_tool_use(SEND_TOOL, {"body": draft.body}, (draft, record, context, checker))
         return Preflight(outcome, None)
     except Exception as exc:
-        named = type(exc).__name__
+        try:
+            named = type(exc).__name__
+        except Exception:
+            named = "an exception whose type would not name itself"
         try:
             described = f"{named}: {exc}"
         except Exception:
@@ -297,9 +314,14 @@ def reachable_reads(source: str, entry: str) -> frozenset[str]:
       definition is outside a census, and nothing at module level is outside a definition.
     - **Imported code.** `pre_tool_use` arrives by name and its body is not censused. That is
       deliberate - the imported engine reads the self-rating, which is exactly the thing this
-      module must receive and must not route on - and the import list is pinned by `module_shape`,
-      so the name cannot be swapped for another quietly. Nothing here is a claim about behaviour at
-      runtime: a monkeypatch from outside the module is not a property of this source.
+      module must receive and must not route on. An earlier version of this sentence added that
+      `module_shape` pins the import list so the name cannot be swapped quietly. That is false, and
+      measured false: `module_shape` labels an `ImportFrom` by `node.module` alone and never reads
+      `node.names` or `asname`, so `import HookOutcome, denial_result as pre_tool_use` moves none of
+      the three pins. What `module_shape` pins is WHICH MODULES are imported, not which names are
+      bound out of them. The swap is refused behaviourally instead: run either alias swap and six
+      tests redden. Nothing here is a claim about behaviour at runtime either - a monkeypatch from
+      outside the module is not a property of this source.
 
     Docstrings and bare string statements are dropped, and comments never enter an AST at all, so
     prose is free. That is the trade this census makes against a text search, and it is the trade
@@ -312,7 +334,7 @@ def reachable_reads(source: str, entry: str) -> frozenset[str]:
     defs = {n.name: n for n in tree.body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
     if entry not in defs:
-        raise LookupError(f"{entry!r} is not a module-level function of the parsed source; "
+        raise LookupError(f"{entry!r} is not a module-level definition of the parsed source; "
                           "an entry that resolves to nothing walks no body and censuses nothing")
     prose = {id(n.value) for n in ast.walk(tree)
              if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)
@@ -503,5 +525,5 @@ def test_an_entry_that_resolves_to_nothing_raises_rather_than_censusing_nothing(
     walks no body, and an empty census equals no expected set - but a subset pin would have passed,
     and so would any pin whose failure mode is silence.
     """
-    with pytest.raises(LookupError, match="not a module-level function"):
+    with pytest.raises(LookupError, match="not a module-level definition"):
         reachable_reads(inspect.getsource(preflight), "routes_to_humans")

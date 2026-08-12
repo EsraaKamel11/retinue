@@ -78,7 +78,14 @@ def annotate(draft: Draft, record: Record, context: ActContext, checker) -> Pref
         outcome = pre_tool_use(SEND_TOOL, {"body": draft.body}, (draft, record, context, checker))
         return Preflight(outcome, None)
     except Exception as exc:
-        named = type(exc).__name__
+        # Both reads are guarded, and the second one is guarded because the first defect was found
+        # one line below it. `type(exc).__name__` looks like an attribute access that cannot fail,
+        # and it can: a metaclass is free to make `__name__` a property that raises, and then the
+        # handler that exists to convert a failure into a fail-closed signal raises instead.
+        try:
+            named = type(exc).__name__
+        except Exception:
+            named = "an exception whose type would not name itself"
         try:
             described = f"{named}: {exc}"
         except Exception:
