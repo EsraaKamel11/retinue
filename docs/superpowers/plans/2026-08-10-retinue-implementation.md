@@ -3869,6 +3869,41 @@ Modify `src/retinue/orchestration/topology.py`: add
 comment. (Orchestration imports the NAME from boundary - the literal still has one home, and the
 audit stays green.)
 
+**AMENDED 2026-08-11, and this step is INCOMPLETE without it: `SESSION_TOOLS` must gain the send
+tool names in the same commit.** The CLI resolves each subagent's declared tools by INTERSECTING
+them with the session roster, which `SESSION_TOOLS` documents in its own comment. That roster is
+`("Agent", "Task", "Read", "Grep", "Glob")`, so the roster this step writes resolves to `["Read"]`
+and the send tool is stripped. Measured before writing this:
+
+```
+proposed roster : ['Read', 'mcp__retinue__send_message', 'send_message']
+RESOLVED        : ['Read']
+```
+
+The default lane would not notice, because the test above asserts the DECLARED roster. That is the
+same failure Task 7 already hit once and wrote a comment against: the options shape asserted while
+the runtime is starved. Here it would ship a conversation specialist that cannot reach the tool the
+whole gating story is about, and Task 23's demo would abort on its offer assertion - correctly, and
+at the last live step, which is the most expensive place to learn it.
+
+So: `SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob", *sorted(SEND_TOOLS))`, by import for
+the same reason the roster is. Widening the ceiling does not widen containment: the ceiling is a
+maximum, per-agent bounds still apply, research and drafting declare no send tool and so are still
+offered none, and the hook still answers `"ask"` for conversation on exactly these names.
+
+And add the test that would have caught this, because the declared-roster test cannot:
+
+```python
+def test_the_send_tool_survives_the_session_intersection():
+    """The DECLARED roster is not the RESOLVED one. The CLI intersects each subagent's tools with
+    the session roster, so a send tool named here and absent from SESSION_TOOLS is stripped at
+    runtime while every options-shape assertion stays green."""
+    from retinue.orchestration.topology import AGENTS, SESSION_TOOLS
+    from retinue.boundary.hook import SEND_TOOLS
+    resolved = [t for t in (AGENTS["conversation"].tools or []) if t in SESSION_TOOLS]
+    assert set(resolved) & set(SEND_TOOLS)
+```
+
 - [ ] **Step 3: Run to verify pass** - Expected: 4 passed; Task 7's and Task 9's suites still
   green (the audit's `send_tool_single_home` rule is the reason the roster change imports).
 - [ ] **Step 4: Inertness proof, then commit** - set conversation's `AgentDefinition` prompt to
