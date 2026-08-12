@@ -267,8 +267,16 @@ bi-temporality for free: every touchpoint carries `occurred_at` (when true in th
 
 - Touchpoints: append-only, `idempotency_key UNIQUE` + `ON CONFLICT DO NOTHING` - a behaviour a
   real database earns, tested in the DSN lane. An append-only trigger enforces no UPDATE/DELETE.
-- `stated_check_size` is `NUMERIC` -> `Decimal`, never float; every money comparison uses a
-  tolerance, never `==`.
+- `stated_check_size` is `NUMERIC` -> `Decimal`, never float. **AMENDED 2026-08-12: the second half
+  of this rule said every money comparison uses a tolerance, never `==`, and it was wrong for the
+  reason the first half gives.** A tolerance is what you reach for when representation error can put
+  two equal quantities a hair apart, and there is no float anywhere in this path: `models.py` refuses
+  a float at the write barrier outright, so the value that arrives is the value that was stored. The
+  rule imported a defence against a hazard the type system already forecloses, and its cost was
+  real - the only assertion on projected money was a tolerance, so adding `Decimal("0.009")` to the
+  derivation left the suite green, and the comment beside it argued for the weakness. Money compares
+  with `==`. Where a later quantity genuinely carries representation error, that comparison states
+  its own reason rather than inheriting this one.
 - Send touchpoints carry the tri-state `delivery_status`: CONFIRMED / FAILED / UNVERIFIABLE, with
   UNVERIFIABLE a designed value (sent-but-unconfirmed is a state, not an error). A later-resolving
   outcome updates the OutcomeRecord, never the touchpoint.

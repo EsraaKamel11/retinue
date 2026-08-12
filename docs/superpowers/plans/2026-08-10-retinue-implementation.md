@@ -31,7 +31,12 @@ disagree, the spec wins.
   English to satisfy a check that should not have fired) ·
   client and organisation tokens from the untracked local list · stale model ids · the removed
   pydantic-ai 2.x result kwarg. Run before every commit that touches docs.
-- Money is `Decimal`, never float; money comparisons use a tolerance, never `==`.
+- Money is `Decimal`, never float. **AMENDED 2026-08-12: the tolerance half of this rule is
+  withdrawn.** No float reaches the money path, because the write barrier refuses one, so a tolerance
+  defends against representation error that cannot occur here - and it cost a real assertion: the one
+  check on projected money stayed green with `Decimal("0.009")` added to the derivation. Money
+  compares with `==`. The spec carries the full reasoning; snippets below that still show a tolerance
+  predate this, and the shipped tests govern.
 - **Test-inertness rule:** every constraint test is demonstrated red-with-constraint-removed at
   introduction, and the red run is recorded in the introducing commit's message.
 - Timestamps injectable; `now()` only at the Postgres adapter edge.
