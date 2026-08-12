@@ -40,7 +40,16 @@ The reason is that a claim row could never be resolved. The store is append-only
 carrying `CONFIRMED`, and the second call returns False with the stored row still at
 `delivery_status=None`. Claim-first would therefore trade the tri-state away for prevention on two
 of four paths, and the tri-state is the thing that keeps an unconfirmable send from being guessed
-CONFIRMED. It is also TOCTOU-racy, and it cannot reach the raising-store path at all.
+CONFIRMED. It also cannot reach the raising-store path at all, and a crash between the claim and
+the act would burn the key.
+
+An earlier revision of this paragraph called claim-first TOCTOU-racy. It is not, and the correction
+matters more than the clause: `append` is the anti-TOCTOU primitive here, an atomic test-and-set in
+both implementations (set membership in one, `ON CONFLICT DO NOTHING` returning `rowcount == 1` in
+the other). The read-then-act window in this module is the SHIPPED step-1 guard, which asks
+`touchpoints_for` and then proceeds. The claim was inherited from the fix-round instruction that
+prompted this paragraph and written down without being measured, in a round whose whole standard was
+that a claim reaching a tracked file has been run first.
 
 So detection, and the guarantee is that an unrecorded act is NEVER REPORTED AS A CLEAN ALLOW AND
 NEVER SILENT. Left unread, the failure was unbounded rather than off by one: no row is written, so

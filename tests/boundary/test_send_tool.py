@@ -340,10 +340,15 @@ def test_a_key_held_by_another_investor_is_not_reported_as_a_clean_allow(tmp_pat
     perfectly correct `sent` row for one investor lets a send to a DIFFERENT investor through the
     guard, and that investor's ledger ends up empty.
 
-    Prevention is out of reach here and detection is not, which is why this asserts what it does.
-    `TouchpointStore` exposes `touchpoints_for(investor_id)` and no lookup by key, so the
-    chokepoint cannot see another investor's row to refuse against. Reading `append`'s answer needs
-    no such lookup: the store already knows, and it already says so.
+    Detection rather than prevention, and the reason lives in `send_tool`'s module docstring rather
+    than being restated here. An earlier version of this paragraph gave the wrong one: that the
+    store exposes no lookup by key, so the chokepoint could not see another investor's row to
+    refuse against. That is defeasible in one step, and it survived here after being replaced in
+    the module, so the repository asserted both halves at once. `append`'s boolean is already a
+    key-global test-and-set, and claiming this very key before the act returns False before the
+    message leaves.
+
+    What this test asserts is the detection: reading the answer the store already gives.
     """
     kw, rows = harness(tmp_path)
     kw["store"].append(Touchpoint(idempotency_key="k17", investor_id="inv-OTHER", mandate_id="m-1",
