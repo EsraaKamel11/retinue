@@ -1,5 +1,13 @@
 # Vendored wheel provenance
 
+Source repository: `https://github.com/EsraaKamel11/chaperone`
+
+Added 2026-08-12, when that repository was published. Until then this file named a commit and no
+repository, which left the boundary library unreadable from here - and this repository's whole
+argument is that its safety comes from that library being IMPORTED rather than reimplemented. An
+argument resting on an artifact the reader cannot open is one they have to take on trust, which is
+the thing this repository refuses to ask for anywhere else.
+
 chaperone-0.1.0-py3-none-any.whl
 Built from chaperone commit 8044a4c9cc1e796484ed5b28d83397513c40ebfa (committed HEAD via
 `git archive` - never a working tree), `pip wheel . --no-deps`, 2026-08-10. An earlier revision

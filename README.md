@@ -38,7 +38,9 @@ has been run on 3.11 by anyone. Every count below is from this machine, on this 
 ## What retinue imports
 
 The boundary library `chaperone`, as a vendored wheel at `vendor/chaperone-0.1.0-py3-none-any.whl`
-whose origin is recorded in `vendor/PROVENANCE.md`. Never `pip install chaperone`: that PyPI name
+whose origin is recorded in `vendor/PROVENANCE.md`. Its source is
+`https://github.com/EsraaKamel11/chaperone`, so the claim below that this repository adds no policy
+code of its own is one a reader can check against the library rather than take on trust. Never `pip install chaperone`: that PyPI name
 belongs to an unrelated package. The wheel ships the library's `src/` only, so the library's own
 purity-audit tooling and its test suite do not travel with it and this repository does not imply
 they do. This repository adds no policy code of its own; the import surface it depends on is the
