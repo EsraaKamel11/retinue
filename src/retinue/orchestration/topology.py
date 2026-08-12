@@ -69,6 +69,18 @@ AGENTS: dict[str, AgentDefinition] = {
 #: that measurement, which is the overclaim this repository keeps having to walk back. A payload
 #: the lane allowed would still meet the chokepoint inside the send tool body, which is where the
 #: checker runs and where the act is executed or not.
+#:
+#: THE ASYMMETRY, which that paragraph stops one step short of and which is the sentence that
+#: matters here: `decide` answers `"ask"` for CONVERSATION on these names and `"allow"` for the
+#: MAIN THREAD. So conversation's send is held for a human BEFORE the call and the main thread's is
+#: not. Measured: a clean bare-spelling payload from the main thread gets `{}` from the lane, which
+#: is the allow answer. The widened main-thread path is therefore no human ask, no lane refusal,
+#: and the chokepoint as the only remaining gate.
+#:
+#: Nothing is live today, and that is a bound rather than a defence. No MCP server serves either
+#: spelling anywhere in this repository and `attempt_send` has no caller outside its own module and
+#: tests, so "would still meet the chokepoint" is present tense about a chokepoint nothing in
+#: production calls. Task 23 wires the server, and this is the paragraph it has to answer.
 SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob", *sorted(SEND_TOOLS))
 
 def build_options(hook) -> ClaudeAgentOptions:

@@ -108,9 +108,15 @@ def test_a_violating_turn_routes_through_the_preflight():
     The CATEGORY is therefore the assertion that makes this a test of the composition. An
     unrecognised body comes back `other` with a `checker unavailable` detail; this one comes back
     carrying the frozen row's own violation class, which it can only do if the body the turn
-    composed arrived at the transport as the key that row is stored under. The expected class is
-    read out of the same fixture the transport loads, so a fixture whose row moved reddens here
-    rather than being quietly agreed with.
+    composed arrived at the transport as the key that row is stored under.
+
+    The expected class is SPELLED here rather than read back out of the fixture the transport
+    loads. An earlier version read it from the fixture and claimed that made a moved row redden.
+    It did the opposite, measured: rewriting that row's class to `other` left this test green AND
+    took its only red arm green with it, so a body the checker never saw would have passed the
+    assertion and the row certifying it could no longer redden. Both sides moved together. This
+    file's neighbour in `tests/orchestration/` states that principle in as many words, about a
+    ceiling widened from the constant's own home, and it was not applied here.
     """
     from chaperone.policy.act_classes import ActContext
     from retinue.boundary.checker_lane import build_checker, scripted_transport
@@ -123,4 +129,4 @@ def test_a_violating_turn_routes_through_the_preflight():
     p = annotate(t.draft, Record(fields={}), context, build_checker(scripted_transport(FIX)))
     assert routes_to_human(p)
     assert p.error is None and p.outcome is not None and not p.outcome.allow
-    assert p.outcome.payload["category"] == frozen_row(VIOLATING)["violation_class"]
+    assert p.outcome.payload["category"] == "content:advises_on_merits"   # spelled, not read back
