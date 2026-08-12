@@ -151,10 +151,20 @@ say "scanning" "${#ALL[@]} tracked files, floor $FILE_FLOOR (control: $control h
 # The exit status is checked rather than folded into a count, for the reason `scan` gives above: a
 # git invocation that died would otherwise print the same "0 unscanned" as a clean tree.
 if git ls-files --others --exclude-standard -z > "$TMP/untracked"; then
+  # THE COUNTER'S OWN CONTROL, and it is here for the reason every gate above carries one. This
+  # line reports rather than gates, so nothing else makes it prove itself, and that leaves it the
+  # one output in this file whose zero would rest on nothing: a `tr` build that stopped matching
+  # the NUL, or a `git ls-files -z` that stopped emitting it, prints "0 untracked files" forever
+  # and reads exactly like a clean tree. Two delimiters go in and two must come out.
+  printf 'a\0b\0' > "$TMP/untracked_probe"
+  probe=$(tr -cd '\0' < "$TMP/untracked_probe" | wc -c | tr -d ' ')
   # NUL-delimited and counted by delimiter, so a filename holding a newline counts once rather than
   # twice. A command substitution would eat the NUL bytes, which is why this goes through a file.
   n_untracked=$(tr -cd '\0' < "$TMP/untracked" | wc -c | tr -d ' ')
-  if [ "$n_untracked" -eq 0 ]; then
+  if [ "$probe" != 2 ]; then
+    say "unscanned" "the delimiter counter returned ${probe:-nothing} where 2 went in FAIL"
+    fail=1
+  elif [ "$n_untracked" -eq 0 ]; then
     say "unscanned" "0 untracked files, so every non-ignored file in the tree was scanned"
   else
     say "unscanned" "$n_untracked untracked non-ignored file(s), read by no gate below:"
