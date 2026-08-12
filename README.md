@@ -20,9 +20,14 @@ a summary of this sentence: a status claim and a row that disagree is the defect
 to catch, and the row is what gets fixed. The four capabilities that stay Designed say so there, by
 name, with the reason.
 
-Three things below are built and have never executed anywhere: the Postgres lane, the judge
-capture, and the live demo. Each says so where it is documented, and none of them is described here
-as a run that happened.
+Four things below are built and have never executed anywhere: the Postgres lane, the judge capture,
+the live demo, and CI itself. Each says so where it is documented, and none of them is described
+here as a run that happened.
+
+CI is the one that was nearly missed, and naming it is the point of this paragraph. Listing three
+invited the reading that everything else had run. This repository has no remote and has never been
+pushed, so `.github/workflows/ci.yml` has never executed; the local interpreter is 3.13, so nothing
+has been run on 3.11 by anyone. Every count below is from this machine, on this version.
 
 ## What retinue imports
 
@@ -87,7 +92,9 @@ in-memory reference store, the matching integration against the imported staging
 evaluators over a hand-judged gold shortlist across the seeded synthetic roster, the frozen judge
 replay, the block-stripped control, the chokepoint's ordering and denial tests, the pre-flight
 two-signal routing, the review queue's in-memory half, and the audit's own planted-violation tests.
-`.github/workflows/ci.yml` runs it on 3.11 and 3.13, then the battery.
+`.github/workflows/ci.yml` is written to run it on 3.11 and 3.13, then the battery. It has never
+run: there is no remote and nothing has been pushed, so the 3.11 half of that matrix is a claim
+about a version no one has executed this suite on.
 
 **Postgres lane** - keyed on `RETINUE_PG_DSN`. Unset, it skips with a printed reason. Set, the same
 contract tests run against real Postgres alongside the enforcement tests only a real database can
@@ -216,8 +223,10 @@ the fleet's current session.
 
 ## The session is not hermetic by default
 
-The captured `system:init` carried five MCP servers and sixteen agent definitions where the
-topology declares three. A session inherits the operator's ambient configuration, because `agents=`
+The captured `system:init` for the P1 session carried five MCP servers and sixteen agent definitions
+where the topology declares three. (`fixtures/payloads/captured_init.json` is that capture and holds
+eight definitions; the sixteen is the count the session reported before the roster resolved, and the
+paragraph below is about that gap. Read the fixture as the P1 session's, not as today's.) A session inherits the operator's ambient configuration, because `agents=`
 merges rather than replaces.
 
 `setting_sources=[]` is set, and what it buys was measured rather than assumed: sixteen agent
@@ -278,7 +287,7 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Matching integration + ranking evaluators + OutcomeRecord | **Built (P2)** - `src/retinue/matching/integrate.py`, `src/retinue/evals/ranking.py`, `src/retinue/ledger/outcomes.py` |
 | Block-stripped control | **Built (P2)** - `src/retinue/evals/control.py` |
 | Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The replay machinery is built and green against a hand-authored, provisional verdict set; the capture that would replace it has never run. |
-| Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. |
+| Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. The checker lane, the pre-flight surface and the review queue are reachable only through it, so they have no production caller either. |
 | Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres and has never executed anywhere. |
 | Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo is written and runnable and has never run, so `captured_ask.json` does not exist and one test skips for that reason. |
 | Contested-quantity rendering + thin-support badge | Designed only - the contract carries `quantity_key` so a conflict can be held, and the prompt instructs the model to group by it, but nothing renders a Contested quantity or a thin-support badge. Annotate-not-arbitrate is the commitment; surfacing the annotation is unbuilt. |

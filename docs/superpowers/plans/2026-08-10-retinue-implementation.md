@@ -1908,6 +1908,12 @@ if git ls-files --others --exclude-standard -z > "$TMP/untracked"; then
   # one output in this file whose zero would rest on nothing: a `tr` build that stopped matching
   # the NUL, or a `git ls-files -z` that stopped emitting it, prints "0 untracked files" forever
   # and reads exactly like a clean tree. Two delimiters go in and two must come out.
+  #
+  # THAT SENTENCE NAMED TWO DEFECTS AND THE PROBE CATCHES ONE. `printf` never touches git, so a
+  # `-z` dropped from the listing on the line above leaves the probe green while the count goes
+  # silently to zero: measured, exit 0, two untracked files unreported. The second arm is the
+  # emptiness check below, which is the case the probe structurally cannot see - a listing with
+  # bytes in it that yields no delimiters is the delimiter having vanished.
   printf 'a\0b\0' > "$TMP/untracked_probe"
   probe=$(tr -cd '\0' < "$TMP/untracked_probe" | wc -c | tr -d ' ')
   # NUL-delimited and counted by delimiter, so a filename holding a newline counts once rather than
@@ -1915,6 +1921,9 @@ if git ls-files --others --exclude-standard -z > "$TMP/untracked"; then
   n_untracked=$(tr -cd '\0' < "$TMP/untracked" | wc -c | tr -d ' ')
   if [ "$probe" != 2 ]; then
     say "unscanned" "the delimiter counter returned ${probe:-nothing} where 2 went in FAIL"
+    fail=1
+  elif [ -s "$TMP/untracked" ] && [ "$n_untracked" -eq 0 ]; then
+    say "unscanned" "the listing has bytes but no delimiters, so the count cannot be read FAIL"
     fail=1
   elif [ "$n_untracked" -eq 0 ]; then
     say "unscanned" "0 untracked files, so every non-ignored file in the tree was scanned"
