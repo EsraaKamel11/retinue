@@ -38,14 +38,21 @@ def _seed_and_explain(c, investor: str, per_investor: int, spread: int, *, no_bi
     hypothetical read path, and the production query could regress to a Seq Scan with the gate
     still green.
 
-    ANALYZE before EXPLAIN, always. Without it the planner reads stale statistics and the plan
-    under test is a plan for a table that no longer exists, which is a measurement of nothing.
+    ANALYZE before EXPLAIN, always, and AFTER the seed rather than before it. Without it the
+    planner reads stale statistics and the plan under test is a plan for a table that no longer
+    exists. It is also what carries SELECTIVITY into the estimate, which is the property both tests
+    below actually turn on: `spread` is not a detail of the fixture, it is the experiment.
+
+    The tag carries both numbers because both callers vary them. Keying on `spread` alone collided:
+    two callers at the same spread wrote overlapping keys, `ON CONFLICT DO NOTHING` swallowed the
+    overlap, and the second seed would have been quietly partial.
     """
     c.execute("""INSERT INTO touchpoints (idempotency_key, investor_id, kind, payload, occurred_at, recorded_at)
                  SELECT %(tag)s||g, 'inv-'||(g %% %(spread)s), 'contact', '{}',
                         now() - (g||' hours')::interval, now()
                  FROM generate_series(1, %(rows)s) g ON CONFLICT DO NOTHING""",
-              {"tag": f"seed-{spread}-", "spread": spread, "rows": per_investor * spread})
+              {"tag": f"seed-{spread}x{per_investor}-", "spread": spread,
+               "rows": per_investor * spread})
     c.commit()
     c.execute("ANALYZE touchpoints")
     from retinue.ledger.postgres import SELECT_FOR_INVESTOR
@@ -83,21 +90,38 @@ def test_the_projection_ordering_rides_the_index_rather_than_a_sort():
 
     A Bitmap Index Scan uses the index and then re-sorts, which satisfies the test above while
     delivering none of the reason for the composite. So this asserts the absence of a Sort, and it
-    has to make the planner's choice deterministic before it can: at ~25 rows per investor the
-    bitmap path wins on cost and the assertion would be measuring the planner's cost model rather
-    than the index's shape.
+    has to make the planner's choice deterministic before it can.
 
-    Two levers, both disclosed rather than quietly applied. The seed gives one investor 2000 rows,
-    enough that an ordered index scan is the cheaper path on its own. `enable_bitmapscan = off` is
-    then set SET LOCAL, scoped to this transaction, as a belt-and-braces pin so a planner-version
-    change cannot silently turn this back into a cost-model measurement. The first is the property;
-    the second keeps the first legible.
+    SECOND DATED FINDING, CI run 31668067816 at a065dac, and it is the more instructive of the two.
+    The split shipped and the renamed test above passed against the very plan it had failed on, but
+    this test failed its own first contact:
 
-    What this cannot claim: that the ordered scan wins at every table size. It wins here, at this
-    size, on this planner. That is the honest scope of an EXPLAIN assertion.
+        Sort (Sort Key: seq)
+          -> Seq Scan on touchpoints (Filter: investor_id = 'inv-0', rows=2025)
+
+    The seed had put all 2000 rows under ONE investor and then queried that investor, so the filter
+    selected the entire table. At 100 percent selectivity no index scan can beat a sequential scan
+    plus a sort, and `enable_bitmapscan = off` does not forbid a Seq Scan, so the pin could not save
+    it either. The seed had defeated the test's own thesis: the composite index's order-for-free
+    story EXISTS ONLY UNDER A SELECTIVE PREDICATE, and a predicate matching everything is not one.
+
+    That is the same error as the first finding, inverted. The original test grew the table without
+    growing the rows per investor; this one grew the rows per investor until they were the whole
+    table. Both times the seed, not the schema, decided the plan.
+
+    So selectivity is now the experiment rather than a side effect: 200 investors at 50 rows each,
+    one of them queried, which is half a percent of the table. `enable_bitmapscan = off` stays,
+    SET LOCAL and scoped to this transaction, as a disclosed belt-and-braces pin against a planner
+    version that would otherwise prefer a bitmap path and re-sort. `enable_seqscan` is deliberately
+    NOT pinned: turning every alternative off would measure the pins rather than the index, and a
+    Seq Scan appearing here again is information this test should be able to report.
+
+    What this cannot claim: that the ordered scan wins at every table size or every selectivity. It
+    wins here, at this size, at this selectivity, on this planner. That is the honest scope of an
+    EXPLAIN assertion, and both findings above are what taught it.
     """
     with _conn() as c:
-        plan = _seed_and_explain(c, "inv-0", per_investor=2000, spread=1, no_bitmap=True)
+        plan = _seed_and_explain(c, "inv-0", per_investor=50, spread=200, no_bitmap=True)
         assert "idx_touchpoints_investor_seq" in plan, f"planner chose a different path:\n{plan}"
         assert "Sort" not in plan, f"index used but the ordering is not free:\n{plan}"
 
