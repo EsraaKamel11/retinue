@@ -111,7 +111,7 @@ executing. The table is the spec's section 3 and 6 material, compressed:
 
 | Surface | Where | Decides | Failure direction |
 |---|---|---|---|
-| Session roster | `SESSION_TOOLS`, `src/retinue/orchestration/topology.py:107` | which tools exist in the session at all; the CLI intersects every subagent's declared roster with it | **silent**: a name missing from the ceiling resolves to nothing and says so nowhere, with every options-shape test still green - held by a declared-roster-subset test, not by memory |
+| Session roster | `SESSION_TOOLS`, `src/retinue/orchestration/topology.py:106` | which tools exist in the session at all; the CLI intersects every subagent's declared roster with it | **silent**: a name missing from the ceiling resolves to nothing and says so nowhere, with every options-shape test still green - held by a declared-roster-subset test, not by memory |
 | PreToolUse hook | `pre_tool_use`, `src/retinue/boundary/hook.py:52` | routing by `agent_type`, then the imported deterministic lane on send payloads | the platform contract fails **open** - an exception escaping a hook does not block the call - so the whole body is guarded and every escape becomes an `ask` (`hook.py:89-90`) |
 | Chokepoint | `attempt_send`, `src/retinue/boundary/send_tool.py:155` | the imported engine and the independent detector lane, bound to the reviewed draft, plus tri-state recording | denials terminal; a recording failure escalates and returns a distinct type, never a silent allow |
 | Pre-flight | `annotate`, `src/retinue/boundary/preflight.py:57` | the would-be verdict over the full predicate set, with no execution | an annotation that errors **is** routing signal two; `routes_to_human` needs no working annotation to say yes |
