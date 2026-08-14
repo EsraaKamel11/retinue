@@ -38,8 +38,9 @@ Two things below were built and, as of 2026-08-12, had never executed anywhere: 
 and CI itself. That list is now empty. Later the same day the first push gave this repository a
 remote, `.github/workflows/ci.yml` ran, and the Postgres lane executed inside it; each sentence
 below that carried the never-executed claim now carries what its first run did instead. Has-run
-and is-green stay different claims, and Lanes keeps them apart: CI's default lane went green on
-3.11 and 3.13, while the Postgres lane has executed and green is not yet claimed for it. The judge
+and is-green stay different claims, and Lanes keeps them apart; on 2026-08-13 they stopped
+differing here: CI's default lane went green on 3.11 and 3.13, and the Postgres lane, red twice
+on its plan assertions, went green on its third run and again on its fourth. The judge
 capture and the live demo had left the list earlier on 2026-08-12: each ran once, and their
 outputs are the frozen fixtures the default lane replays. The dates on these sentences are
 load-bearing rather than decorative: publishing this repository was itself the act that made the
@@ -104,13 +105,16 @@ first run's plan is pinned in the docstring as the finding it was.
 `RETINUE_PG_REQUIRED=1` turns a skip into a failure, which is the negative control that keeps the
 lane from being vacuous.
 
-> **This lane first executed on 2026-08-12, in CI; executed is the claim here, not green.** There
-> is no Docker on the machine this was built on and an ephemeral cluster would not start there, so
+> **This lane first executed on 2026-08-12, in CI, and went green on 2026-08-13.** There is no
+> Docker on the machine this was built on and an ephemeral cluster would not start there, so
 > until that run every Postgres statement in this repository was code that had been read and never
-> run. Two runs as of 2026-08-13, 250 tests collected, each reddening one plan assertion: first
-> the Sort clause the paragraph above holds, then the split-off ordering test on a seed that let
-> the predicate select the whole table. The re-seeded ordering test's first run was still pending
-> as of 2026-08-13; treat that one claim accordingly until a run holding it is green.
+> run. Four runs as of 2026-08-14. The first two each reddened one plan assertion: the Sort clause
+> the paragraph above holds, at 249 collected, then the split-off ordering test on a seed that let
+> the predicate select the whole table, 1 failed and 249 passed of 250 collected. The re-seeded
+> ordering test's first run came on the morning of 2026-08-13 and was green, the planner choosing
+> the index path at half a percent selectivity, 250 passed in this lane; the 2026-08-14 run
+> repeated it, 250 again. An earlier version of this paragraph counted two runs and called that
+> first run pending: two is the count of reddens, and the run it awaited had already gone green.
 >
 > Locally: `docker compose up -d --wait`, then export the DSN from the trailing comment in
 > `docker-compose.yml` (port 55432, because a locally installed Postgres commonly holds 5432).
@@ -334,14 +338,14 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | The library's own purity audit | **Not imported.** The wheel ships `src/chaperone` only; the source repository's `tools/` and `tests/` do not travel. |
 | Orchestration options + hook + routing | **Built (P1)** - `src/retinue/orchestration/topology.py`, `src/retinue/boundary/hook.py` |
 | Research agent + ResearchBrief contract | **Built (P1)** - `src/retinue/specialists/research.py`, `src/retinue/specialists/failures.py` |
-| Ledger schema, projection, `ActContext` feed | **Built (P1)** - `schema.sql`, `src/retinue/ledger/`. The in-memory contract lane is green; the Postgres half first executed in CI on 2026-08-12, and executed is the claim, not green (see Lanes). |
+| Ledger schema, projection, `ActContext` feed | **Built (P1)** - `schema.sql`, `src/retinue/ledger/`. The in-memory contract lane is green; the Postgres half first executed in CI on 2026-08-12 and went green on 2026-08-13, holding through the 2026-08-14 run (see Lanes). |
 | Rendered block renderer (budget + completeness raises) | **Built (P1)** - `src/retinue/ledger/block.py` |
 | Live capture smoke + payload fixtures | **Built (P1)** - `scripts/capture_smoke.py`, `fixtures/payloads/`, plus the seeded roster generator at `src/retinue/synth/rosters.py`. The capture is frozen and the script refuses every invocation (see Lanes). One gap it names itself stays unproduced: the `background`-unset half of the background evidence pair, which needs a run against a deliberately-unset definition. The "ask" fixture moved to the P4 demo, which owns it. |
 | Matching integration + ranking evaluators + OutcomeRecord | **Built (P2)** - `src/retinue/matching/integrate.py`, `src/retinue/evals/ranking.py`, `src/retinue/ledger/outcomes.py` |
 | Block-stripped control | **Built (P2)** - `src/retinue/evals/control.py` |
 | Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The capture ran once (2026-08-12); the verdict set is captured, stamped in its own meta, and replayed by the default lane. Two cases with one under the confidence floor: real-judge evidence at protocol size, not a measurement at scale. |
 | Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. The checker lane, the pre-flight surface and the review queue are reachable only through it, so they have no production caller either. |
-| Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres and first executed in CI on 2026-08-12, executed rather than green (see Lanes). |
+| Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres, first executed in CI on 2026-08-12, and green on 2026-08-13 and 2026-08-14 (see Lanes). |
 | Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo ran once (2026-08-12): the send tool's offer was asserted in the live session, the conversation send fired the hook's ask, the tool body was reached zero times, and the captured ask is tracked and replayed by `tests/boundary/test_ask_replay.py`. The reason a human is shown for a gated send is now asserted over a hand-authored payload and a captured one. |
 | **Ask-to-chokepoint approval bridge** | **Designed only, and it is the seam the two lanes meet at.** Nothing mints, transports or validates an approval token. `build_act_context` defaults it, the imported check is presence-only, and its violation class is terminal, so a composed system denies every send unless a caller invents a token - which would reduce "a human approved this act" to "the caller passed a non-None string". An SDK permission grant hands the tool body no evidence it can carry, so this is an unanswered design question rather than unwritten wiring. The spec asserted this as sourced until 2026-08-12. |
 | **Tier from the ladder decision** | Designed only - `chaperone/gates/ladder.py` ships in the wheel and nothing here imports it. Tier arrives as a bare int parameter. |

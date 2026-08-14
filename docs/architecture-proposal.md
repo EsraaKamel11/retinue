@@ -48,10 +48,11 @@ per the README's own count, all 9 keyed on an absent Postgres DSN. This page was
 four built things that had never executed anywhere. On 2026-08-12 three of them ran, and those
 sentences are replaced throughout rather than softened: the judge capture ran once, the live demo
 ran once, and CI ran, so the default lane is green on Python 3.11 as well as 3.13 and the Postgres
-lane has executed with 250 tests collected. Nothing built here has never executed anywhere any
-more. Whether every lane is GREEN is a different claim from whether it has RUN, and section 10
-keeps the two apart. The README's Designed-vs-Built table is the authority on build status; the
-spec's own section 12 calls itself the seed that table inherited.
+lane has executed, green since its third run on 2026-08-13 (section 10 carries the counts).
+Nothing built here has never executed anywhere any more. Whether every lane is GREEN is a
+different claim from whether it has RUN, and section 10 keeps the two apart. The README's
+Designed-vs-Built table is the authority on build status; the spec's own section 12 calls itself
+the seed that table inherited.
 
 ---
 
@@ -396,7 +397,8 @@ reaches the named index, and that its ORDER BY rides that index rather than a So
 
 **This lane has now executed, and what it found is the reason it exists.** There is no Docker on
 the authoring machine, so every Postgres statement here was read and never run until CI ran it on
-2026-08-12. Two runs so far, 250 tests collected. The first reddened the index test on a third
+2026-08-12. Four runs as of 2026-08-14; the first collected 249, each later one 250, and a
+sentence that counted two was counting reddens. The first reddened the index test on a third
 clause it carried, asserting no Sort: the named index was reached and there was no Seq Scan, so
 what the test's name claimed held, but at roughly twenty-five rows per investor the planner chose
 a bitmap scan and re-sorted. A planner choice at toy scale, not a broken index. The clause became
@@ -404,7 +406,10 @@ its own test, and that test then reddened on its own first contact for a differe
 seed had put every row under the queried investor, so the predicate selected the whole table, and
 at full selectivity no index scan beats a sequential scan plus a sort. Both findings were the seed
 deciding the plan rather than the schema, inverted. The current seed makes selectivity the
-experiment, and its first run is pending. **Green is not claimed here; executed is.**
+experiment, and its first run, on the morning of 2026-08-13, was green: the planner chose the
+index path at half a percent selectivity, 250 passed in this lane, and the 2026-08-14 run
+repeated it. **Executed and green are still different claims; since 2026-08-13 this lane holds
+both.**
 
 **Live lane** - `RETINUE_LIVE=1`, keyed, manual, never CI. Live runs are capture runs: payloads
 recorded once, stamped with the versions that produced them - asked of the installed binaries,
