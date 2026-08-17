@@ -794,9 +794,15 @@ Limits are properties of the system, so they get the same precision as the featu
   The one captured crossing is stated at its size in section 9: the judge verdicts are a model's,
   frozen at version, two cases with one confident verdict. The drafts' ground truth is still one
   author's opinion, so even that figure is a judge against one author's labels, not a benchmark.
-- **The Postgres half has run twice and is not yet green**, and this page does not claim it is:
-  both runs reddened one test each, both reds were seed findings recorded in section 10, and the
-  current seed's first run is pending. The 241-passed count is one machine's, on 3.13, restated
+- **The Postgres half has run four times and has been green since 2026-08-13**, and the limit worth
+  keeping is narrower than that sentence sounds. This bullet said "twice and not yet green, the
+  current seed's first run pending" until 2026-08-14; two was the count of reddens, and the run it
+  called pending had already gone green on the morning of 2026-08-13. Section 10 carried the
+  corrected account first, and this bullet is dated rather than quietly swapped because a limits
+  list that silently updates is the one place a reader cannot check the update. What the four runs
+  bought: both reds were seed findings and not schema faults, so what they establish is that the
+  index is reached and its ordering rides it at half a percent selectivity on this planner, not
+  that either holds at every table size. The 241-passed count is one machine's, on 3.13, restated
   from the README rather than re-measured by this page; CI's counts are its own runs'.
 - **The live captures are one machine's, at one version.** Payloads captured under one operator's
   ambient configuration are not canonical whatever they show, the session is only partially

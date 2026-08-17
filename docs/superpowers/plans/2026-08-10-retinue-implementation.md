@@ -1,5 +1,8 @@
 # retinue Implementation Plan (P1-P4)
 
+Start at [README.md](../../../README.md) for what the system is and what is built; this plan is the
+build record of how it got there.
+
 > Executed task by task: each task implemented against its tests, then reviewed independently
 > before the next began. Every task carries a red-arm matrix in its commit body, on the rule that a
 > constraint nobody watched fail is a constraint nobody has checked. The checkboxes are the task

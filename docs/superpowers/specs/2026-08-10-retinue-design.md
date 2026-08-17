@@ -1,5 +1,8 @@
 # retinue - design spec
 
+Start at [README.md](../../../README.md) for what the system is and what is built; this spec is the
+design intent it was built against.
+
 **Date 2026-08-10. Status: written, pending review round and user review.**
 Produced via brainstorming: three open decisions user-resolved, an architecture shape carried through
 two adversarial review passes, a full concept audit against the competency register and a
@@ -544,6 +547,9 @@ a graph-checkpointer for escalation durability (the queue plus Postgres is the d
 ---
 
 ## 12. Designed-vs-Built (seed - the README inherits this table)
+
+The table below is the preserved seed, reading as it did the day this spec was written; `README.md`'s
+Designed-vs-Built table is the authority on what is actually built.
 
 | Capability | Status |
 |---|---|
