@@ -8,7 +8,8 @@ async def _noop_hook(input_data, tool_use_id, context):
 def test_the_session_loads_no_ambient_filesystem_settings():
     # `None` is the dangerous value and the default: it loads every filesystem settings source,
     # and the first capture proved what that means. That session resolved SIXTEEN agent
-    # definitions where this module declares three, and five MCP servers nobody here configured,
+    # definitions where this module declared three at the time (four today), and five MCP servers
+    # nobody here configured,
     # every one of them read off the operator's own machine. Fixtures captured from a session
     # shaped by one operator's configuration are not canonical, whatever they happen to show.
     # Asserted as `== []` and not merely falsy, because `None` is falsy and is the opposite.
@@ -73,7 +74,7 @@ def test_the_session_roster_covers_every_declared_agent_roster():
     starved = {name: missing for name, missing in starved.items() if missing}
     assert not starved, f"declared but absent from the session roster: {starved}"
 
-def test_widening_the_ceiling_offers_no_send_tool_to_research_or_drafting():
+def test_widening_the_ceiling_offers_no_send_tool_to_any_content_specialist():
     """A maximum is not a grant, asserted on the RESOLVED roster rather than on the declaration.
 
     Task 22 put the send names into the ceiling, and the sentence justifying that says per-agent
@@ -85,9 +86,15 @@ def test_widening_the_ceiling_offers_no_send_tool_to_research_or_drafting():
     Named rather than derived from `AGENTS`, and that is the point of the test: iterating every
     agent except the one whose name is excluded would keep passing if a fourth specialist were
     added with a send tool and no thought given to it.
+
+    That fourth specialist arrived, and this list is where the thought is recorded. `intake` is the
+    desk's founder-side door: it authors a turn and proposes no act, so it declares `Read` alone and
+    joins the two names already here. The test was called `..._to_research_or_drafting` until then,
+    and the rename is deliberate rather than cosmetic - a name enumerating two specialists is a name
+    that has to be rewritten to admit a third, which is precisely the moment this row exists for.
     """
     from retinue.boundary.hook import SEND_TOOLS
-    for name in ("research", "drafting"):
+    for name in ("research", "drafting", "intake"):
         resolved = {t for t in (AGENTS[name].tools or ()) if t in SESSION_TOOLS}
         assert not (resolved & set(SEND_TOOLS)), f"{name} is offered {sorted(resolved)}"
 

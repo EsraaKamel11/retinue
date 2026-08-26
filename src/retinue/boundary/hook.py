@@ -28,6 +28,11 @@ ROUTING: tuple[tuple[str, frozenset[str]], ...] = (
     ("research", frozenset()),
     ("drafting", frozenset()),
     ("conversation", SEND_TOOLS),
+    # Intake is the desk's founder-side door and is offered no send tool, so it routes with an
+    # empty gated set exactly as the other two content specialists do. The empty set is the honest
+    # entry rather than a defensive `SEND_TOOLS`: a gated name for a tool the roster never declares
+    # is an arm nothing can reach, and this table's whole job is to be readable as the fleet.
+    ("intake", frozenset()),
 )
 ROUTED_AGENTS = frozenset(name for name, _ in ROUTING)
 

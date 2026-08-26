@@ -41,6 +41,7 @@ def test_decision_table_is_total():
     assert decide(None, "anything") == "allow"                 # main thread
     assert decide("research", "Read") == "allow"
     assert decide("drafting", "Read") == "allow"
+    assert decide("intake", "Read") == "allow"
     # The send tool's name is imported, never respelled: it has one home. The wire spelling is
     # still pinned, because the two fixture-driven tests below carry the literal in JSON and go
     # red the moment the constant stops matching it.

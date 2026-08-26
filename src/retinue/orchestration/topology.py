@@ -7,12 +7,13 @@ from claude_agent_sdk.types import AgentDefinition
 from retinue.boundary.hook import SEND_TOOLS
 from retinue.specialists.conversation import CONVERSATION_PROMPT
 from retinue.specialists.drafting import DRAFTING_PROMPT
+from retinue.specialists.intake import INTAKE_PROMPT
 from retinue.specialists.research import RESEARCH_PROMPT
 
 SPAWN_TOOLS = ("Agent", "Task")   # renamed at CLI 2.1.63; both listed, runtime binds one
 
 TIERS = {"orchestrator": "sonnet-tier", "research": "haiku-tier",
-         "drafting": "haiku-tier", "conversation": "sonnet-tier"}
+         "drafting": "haiku-tier", "conversation": "sonnet-tier", "intake": "sonnet-tier"}
 
 # background=False is stated on every definition, never left unset. The SDK serialises a
 # definition by dropping its None fields, so an unset background sends nothing and the CLI's own
@@ -35,6 +36,15 @@ AGENTS: dict[str, AgentDefinition] = {
         # spellings, because which one the runtime binds is a property of how the tool is served
         # and not of this table. Declaring it is only half of offering it - see SESSION_TOOLS.
         tools=["Read", *sorted(SEND_TOOLS)], background=False),
+    "intake": AgentDefinition(
+        description="Runs the founder intake; proposes turns, composes no draft.",
+        prompt=INTAKE_PROMPT,       # parity: the SAME constant object the pydantic-ai agent uses
+        # The desk's other door, and it is DRAFTING's roster rather than conversation's. Intake
+        # authors the founder's half of a thread and proposes no act: the Draft composes downstream
+        # at the chokepoint, where the gate runs, so naming a send tool here would widen what is
+        # offered without moving where the act is decided. The comment on conversation above stays
+        # true as written: one roster names the send tool, and this is not it.
+        tools=["Read"], background=False),
 }
 
 #: The SESSION roster. The CLI resolves each subagent's declared tools by INTERSECTING them
@@ -114,7 +124,8 @@ def build_options(hook) -> ClaudeAgentOptions:
     # `setting_sources=[]` is the third, and what it does here is measured, not assumed. Left
     # unset it defaults to None, which loads every filesystem settings source - and `agents`
     # MERGES with what those sources declare rather than replacing it. A live capture taken
-    # without it resolved SIXTEEN agent definitions where this table declares three, plus two
+    # without it resolved SIXTEEN agent definitions where this table declared three at the time
+    # (four today, since intake joined it), plus two
     # plugins and the operator's own hooks, all read off one machine. A second capture with it
     # set resolved eight: the eight settings-defined agents, both plugins and those ambient hooks
     # were gone, and the resolved tool list was identical either way.

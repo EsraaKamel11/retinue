@@ -12,12 +12,12 @@ matrix rather than the supported range: `pyproject.toml` requires >=3.11, and CI
 No test count is badged, deliberately, since a hand-set number goes stale in silence, and the
 battery section below is about exactly that failure shape.
 
-An orchestrated fleet of three specialist agents - research, drafting, conversation - around an
-imported deterministic boundary, with a Postgres relationship ledger, a matching integration, and
+An orchestrated fleet of four specialist agents - research, drafting, conversation, intake - around
+an imported deterministic boundary, with a Postgres relationship ledger, a matching integration, and
 an evaluation harness. It is the system a founding engineer would build for agent-run,
 relationship-led investor fundraising, synthetic end to end: the agent layer that researches
-investors, drafts the approach and carries the conversation; the gate that decides what agents may
-do alone and the evals behind it; and the matching engine beneath them. The one irreversible act -
+investors, drafts the approach, carries the conversation and takes the founder's intake; the gate
+that decides what agents may do alone and the evals behind it; and the matching engine beneath them. The one irreversible act -
 the outward send - is the thing the boundary gates. Determinism is the doctrine and keys are
 incidental, so the default lane needs no running service, live runs exist only to capture evidence
 once, and no test contacts a model or a network. Clone it, `pip install -r requirements.txt`,
@@ -69,7 +69,8 @@ externally visible event, and this fleet has exactly one - the outward send. The
 two asymmetrically, and the asymmetry is the whole architecture:
 
 - **Acts are bounded structurally, so the bound can be stated as structure.** The research and
-  drafting specialists are offered no outbound tool at all - not a refused tool, an absent one.
+  drafting specialists, and the intake specialist beside them, are offered no outbound tool at all -
+  not a refused tool, an absent one.
   The conversation specialist's send is held for a human before the call. The one act path is built to run
   the imported deterministic engine at a chokepoint inside the send-tool body - wired and tested,
   with no agent caller yet, which
@@ -147,8 +148,13 @@ that owns it.
          (Postgres / in-memory)      in-memory second
 ```
 
+The diagram traces the act path, and a fourth specialist rides the same hook without appearing on
+it: `intake` is the founder-side door of the same desk, declares `Read` alone, and proposes no act,
+so its lane stops at the content row and never reaches the chokepoint below. It is drawn out of the
+picture rather than left out of the fleet, and [the roster](#the-roster) carries its row.
+
 Five layers, top to bottom: the session options are the spec layer, written as data; the
-orchestrator routes work to the three specialists; every tool call passes the one registered
+orchestrator routes work to the four specialists; every tool call passes the one registered
 hook; the single act path runs the imported engine at its chokepoint; and what remains is state -
 the ledger, the durable review queue, the audit trail. One honesty note belongs on the diagram
 rather than under it: `attempt_send` has no caller outside its own module and its tests, which is
@@ -157,15 +163,15 @@ demo's live session captured the gate holding a send BEFORE the chokepoint; the 
 is exercised by its test suite, not yet by an agent.
 
 1. **The session is declared, not spawned.** `build_options` in
-   `src/retinue/orchestration/topology.py` returns the SDK options: the three agent definitions,
+   `src/retinue/orchestration/topology.py` returns the SDK options: the four agent definitions,
    `tools=SESSION_TOOLS` as a shared ceiling, `allowed_tools=SPAWN_TOOLS` as the pre-approve list,
    `setting_sources=[]`, `permission_mode="default"`, and one `PreToolUse` hook. Nothing in that module spawns anything; the
    topology is data the tests assert against.
 2. **A specialist is offered a subset of the ceiling.** Each `AgentDefinition` declares its own
    tools and states `background=False`, and the CLI resolves a specialist's tools by intersecting
    its declaration with the session roster, so the ceiling is a maximum and never a grant.
-   Research declares `Read`, `Grep`, `Glob`; drafting declares `Read`; conversation declares
-   `Read` plus both send spellings.
+   Research declares `Read`, `Grep`, `Glob`; drafting declares `Read`; intake declares `Read`;
+   conversation declares `Read` plus both send spellings, and is the only roster that names them.
 3. **Every tool call meets the hook first.** `pre_tool_use` in `src/retinue/boundary/hook.py`
    routes on `agent_type` through the `ROUTING` table: conversation asking for a send name is held
    for a human with `ask`, an unrecognised agent type is `ask` as well, and everything else is
@@ -208,9 +214,10 @@ None, which is the approval bridge the table at the bottom carries as Designed o
 | `research` | content | `fixtures/docs/*.md` | `ResearchBrief`: frozen `Claim`s, cited and dated | no gate imports, no outbound tool offered; a malformed citation buys ONE retry, a missing source escalates in one model call - retrying it is an invitation to fabricate (`specialists/research.py`) |
 | `drafting` | content | `RelationshipRecord` | draft body, built into a `Draft` | drafts from the record only; output goes to review, never directly out; refuses to build without the identity fields (`specialists/drafting.py`) |
 | `conversation` | content proposing an act | record + thread | `ConversationTurn` = composed `Draft` + intent label | every outward send is gated: the hook asks a human before the call; the thread rides INSIDE the draft so checker and reviewer judge the same object (`specialists/conversation.py`) |
+| `intake` | content | founder thread + intake record | `IntakeTurn` = body + cited fields + intent label | the desk's founder-side door: five locked stages, a recap carrying only what she said or the record holds, and no outbound tool offered; the turn is LIGHT and composes no `Draft`, because a live capture lane measured the full-`Draft` output schema failing under the model's output retries where this one succeeded, and the `Draft` composes downstream at the chokepoint where the gate runs (`specialists/intake.py`) |
 | checker (an instrument, not an agent) | judge over drafts | the imported checker prompt | `Verdict` / `FlagForReview` | scripted frozen verdicts by default, live transport only in capture scripts; construction enforces tier ordering; a flag maps to UNVERIFIABLE, never to clean (`boundary/checker_lane.py`) |
 
-The three specialists exist twice by design: as `AgentDefinition`s the SDK runs and as
+The four specialists exist twice by design: as `AgentDefinition`s the SDK runs and as
 pydantic-ai `Agent`s the offline tests drive - and the parity rule is that both read the SAME
 prompt constant, imported, so the tested prompt and the running prompt cannot drift apart.
 
@@ -224,12 +231,13 @@ abbreviated to their shape:
 
 ```python
 TIERS = {"orchestrator": "sonnet-tier", "research": "haiku-tier",
-         "drafting": "haiku-tier", "conversation": "sonnet-tier"}
+         "drafting": "haiku-tier", "conversation": "sonnet-tier", "intake": "sonnet-tier"}
 
 AGENTS: dict[str, AgentDefinition] = {
     "research":     AgentDefinition(tools=["Read", "Grep", "Glob"], background=False, ...),
     "drafting":     AgentDefinition(tools=["Read"], background=False, ...),
     "conversation": AgentDefinition(tools=["Read", *sorted(SEND_TOOLS)], background=False, ...),
+    "intake":       AgentDefinition(tools=["Read"], background=False, ...),
 }
 
 SESSION_TOOLS = ("Agent", "Task", "Read", "Grep", "Glob", *sorted(SEND_TOOLS))
@@ -238,6 +246,7 @@ ROUTING: tuple[tuple[str, frozenset[str]], ...] = (      # boundary/hook.py
     ("research", frozenset()),
     ("drafting", frozenset()),
     ("conversation", SEND_TOOLS),
+    ("intake", frozenset()),
 )
 ```
 
@@ -271,7 +280,7 @@ checker never weaker than the drafter - is enforced by the imported constructor 
 | Path | What is in it |
 |---|---|
 | `src/retinue/orchestration/` | the topology as data: agent definitions, tiers, the session ceiling, `build_options` |
-| `src/retinue/specialists/` | the three prompts and their agents: research, drafting, conversation, plus the research contract's failure types |
+| `src/retinue/specialists/` | the four prompts and their agents: research, drafting, conversation, intake, plus the research contract's failure types |
 | `src/retinue/boundary/` | the hook, the chokepoint, the checker lane, the pre-flight surface, the review queue |
 | `src/retinue/ledger/` | touchpoint models and the write barrier, the store contract with its in-memory reference, the Postgres adapter, the projection, the rendered block, outcomes |
 | `src/retinue/matching/` | `integrate.py`, the one caller of the imported matching staging |
@@ -772,7 +781,8 @@ the fleet's current session.
 ## The session is not hermetic by default
 
 The captured `system:init` for the P1 session carried five MCP servers and sixteen agent definitions
-where the topology declares three. (`fixtures/payloads/captured_init.json` is that capture and holds
+where the topology declared three at the time (four today, since intake joined it).
+(`fixtures/payloads/captured_init.json` is that capture and holds
 eight definitions, because the sixteen and the eight are TWO CAPTURES rather than two stages of one:
 sixteen with `setting_sources` unset, eight with it set, which is what the paragraph below measured.
 Read the fixture as the second of those.) A session inherits the operator's ambient configuration,
@@ -967,6 +977,7 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. The checker lane, the pre-flight surface and the review queue are reachable only through it, so they have no production caller either. |
 | Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres, first executed in CI on 2026-08-12, and green on 2026-08-13 and 2026-08-14 (see Lanes). |
 | Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo ran once (2026-08-12): the send tool's offer was asserted in the live session, the conversation send fired the hook's ask, the tool body was reached zero times, and the captured ask is tracked and replayed by `tests/boundary/test_ask_replay.py`. The reason a human is shown for a gated send is now asserted over a hand-authored payload and a captured one. |
+| Intake agent + light turn schema | **Built** - `src/retinue/specialists/intake.py`, `tests/specialists/test_intake.py`, registered in `orchestration/topology.py` and routed in `boundary/hook.py`. The founder-side door of the same desk, declaring `Read` and no outbound tool. **Never executed live from this repository, as of 2026-08-26**: there is no capture script for it here and no run of any kind, so nothing in this tree is evidence about how the prompt behaves. A sibling repository imports `INTAKE_PROMPT` for a live capture, and the light turn schema is that lane's finding rather than this one's: the full-`Draft` output schema failed there under the model's output retries where the three-field turn succeeded. |
 | **Ask-to-chokepoint approval bridge** | **Designed only, and it is the seam the two lanes meet at.** Nothing mints, transports or validates an approval token. `build_act_context` defaults it, the imported check is presence-only, and its violation class is terminal, so a composed system denies every send unless a caller invents a token - which would reduce "a human approved this act" to "the caller passed a non-None string". An SDK permission grant hands the tool body no evidence it can carry, so this is an unanswered design question rather than unwritten wiring. The spec asserted this as sourced until 2026-08-12. |
 | **Tier from the ladder decision** | Designed only - `chaperone/gates/ladder.py` ships in the wheel and nothing here imports it. Tier arrives as a bare int parameter. |
 | Contested-quantity rendering + thin-support badge | Designed only - the contract carries `quantity_key` so a conflict can be held, and the prompt instructs the model to group by it, but nothing renders a Contested quantity or a thin-support badge. Annotate-not-arbitrate is the commitment; surfacing the annotation is unbuilt. |
