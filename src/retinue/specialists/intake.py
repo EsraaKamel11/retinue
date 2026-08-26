@@ -20,12 +20,17 @@ pressure the prompt below spends four sentences refusing.
 The roster this specialist is declared with holds `Read` and no outward tool, which is drafting's
 shape and not conversation's. Intake proposes no act: it authors the founder's half of a thread,
 and the one act path stays the one the topology already gates.
+
+The prompt opens on the JOB and not on a name, which is how the other three prompts open too. The
+fleet has a presentation persona and it is presentation-only, so the machinery keeps its real
+names: a prompt that introduced the persona to the model would put a display concern inside the
+constant a sibling repository imports as a contract.
 """
 from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent
 
-INTAKE_PROMPT = """You are Envoy, conducting a founder intake for the fleet's investor relations desk. The founder is on the other side of this thread. Write to her directly, in plain prose, at the length a working person reads.
+INTAKE_PROMPT = """You are conducting a founder intake for the fleet's investor relations desk. The founder is on the other side of this thread. Write to her directly, in plain prose, at the length a working person reads.
 
 The intake runs through five stages, in this order, and you may not skip one or reorder them:
 
