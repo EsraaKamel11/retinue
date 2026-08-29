@@ -927,13 +927,18 @@ That last clause is the entry condition, so a row flips to Built on evidence and
    review surface already here: `review_queue.resolved_at` is declared and unwritten, so a human
    resolution can mint a single-use token bound to the draft's idempotency key and body digest.
    It retires the standing incentive for a caller to invent evidence, and it is the same event as
-   `attempt_send` gaining its first non-test caller.
+   `attempt_send` gaining its first non-test caller. (2026-08-27: three downstream keyed captures
+   now end on `act:no_approval_token`, and two new specialists consume the same hold; the row's
+   priority is measured, not argued - proposal section 15.1's dated amendment carries the
+   evidence.)
 2. **Tier from the ladder** (section 15.2). `boundary/` imports `chaperone/gates/ladder.py`,
    declares per-surface ceilings in the topology's data style, and feeds `build_act_context`'s
    `tier` from a constructed `LadderState` rather than a literal. The library's constructor
    refuses a state above its ceiling, so the fleet inherits an unconstructable-overreach property
    instead of building one. Promotion stays driven by nothing until human-review outcomes exist to
    drive it, which is the library's own refusal of self-promotion, inherited deliberately.
+   (2026-08-27: queued behind the bridge by dependency - review outcomes begin existing the day
+   the bridge is built.)
 3. **The sliding-window contact limit** (section 15.3). Every touchpoint already carries
    `occurred_at`, so a windowed count is one query over recorded data. It retires burst contact
    inside the lifetime cap: a cap of N says nothing about N sends in an afternoon. The windowed

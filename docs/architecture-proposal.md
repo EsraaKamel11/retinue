@@ -589,6 +589,17 @@ refused; and a replay of the demo's captured ask payload drives the full path. P
 tests for the mint's durability. The row flips to Built only when `attempt_send` gains its first
 non-test caller through this path, which is the same event as section 4's disclosure coming off.
 
+(Amended 2026-08-27, evidence update: this row's absence is now the most-measured fact in the
+portfolio. Three downstream keyed captures ended on `act:no_approval_token` - the published
+conversation replay's held send, and both of the sibling console's captures, whose public films
+close on a held card reading that nothing mints an approval. The fleet has also grown two new
+consumers since this section was written: the intake specialist, whose captured run ended on
+exactly this hold, and a community specialist planned downstream whose crisis lane depends on
+the same mechanism. The row's argument is unchanged; its priority is no longer arguable. One
+sequencing consequence is now stated rather than implied: section 15.2 feeds promotion from
+human-review outcomes, and human-review outcomes begin existing the day this row is built, so
+15.2 queues behind 15.1 by dependency, not by preference.)
+
 ### 15.2 Tier from the ladder decision
 
 **What exists.** `chaperone/gates/ladder.py` ships in the wheel and nothing in `src/retinue/`
