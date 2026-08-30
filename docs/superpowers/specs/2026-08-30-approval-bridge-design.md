@@ -51,7 +51,7 @@ binding, expiry and atomic consumption is recorded here as validation of the sha
 mints the token in the same call, because the mint IS the resolution event - there is no second
 human act to attest. Rejecting verdicts write `resolved_at` and mint nothing.
 
-Tokens live in their own table, `approval_tokens`, not as columns on the review row: a
+Tokens live in their own table, `approvals` (this sentence said `approval_tokens` until 2026-08-30; the plan, the DDL and every consumer spell it `approvals`, and the shorter name won at Task 1's flag rather than by silent fork), not as columns on the review row: a
 resolution mints zero or one token, and the token's lifecycle is the new store's own contract.
 The `resolved_at` write is this design's SINGLE deliberate update, named as such: the queue's
 enqueue stays insert-only, and the resolution is a test-and-set
