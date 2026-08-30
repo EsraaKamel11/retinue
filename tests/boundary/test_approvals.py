@@ -697,12 +697,23 @@ def test_an_approval_of_a_row_someone_else_resolved_first_exits_one():
     assert minted == [None]
 
 
-def _pg_store():
+def _dsn_or_skip() -> str:
+    """The DSN, or the skip-and-fail posture this module opens by declaring.
+
+    One copy, called by everything below. It was written out twice, and a third caller arrived with
+    the transaction tests: a posture stated in the module docstring and re-implemented per helper is
+    one edit away from a lane that quietly stops failing under RETINUE_PG_REQUIRED=1.
+    """
     dsn = os.environ.get("RETINUE_PG_DSN")
     if not dsn:
         if os.environ.get("RETINUE_PG_REQUIRED") == "1":
             pytest.fail("RETINUE_PG_REQUIRED=1 but RETINUE_PG_DSN is unset")
         pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped")
+    return dsn
+
+
+def _pg_store():
+    dsn = _dsn_or_skip()
     # `bootstrap` first, the same order tests/ledger/conftest.py and test_review_queue.py:144
     # already use. This file collects BEFORE both of them, so on a database that has never seen
     # the two new tables the PG test below would red on an undefined relation rather than on the
@@ -720,11 +731,7 @@ def _pg_conn():
     psycopg is imported inside, not at module scope, for the reason the module under test imports
     it inside `_conn`: the keyless lane never pays for the DSN lane's dependency.
     """
-    dsn = os.environ.get("RETINUE_PG_DSN")
-    if not dsn:
-        if os.environ.get("RETINUE_PG_REQUIRED") == "1":
-            pytest.fail("RETINUE_PG_REQUIRED=1 but RETINUE_PG_DSN is unset")
-        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped")
+    dsn = _dsn_or_skip()
     import psycopg
     from retinue.ledger.postgres import bootstrap
     bootstrap(dsn)
@@ -805,3 +812,182 @@ def test_the_consumption_table_refuses_update_delete_and_truncate():
                            match="approval_consumptions is append-only"):
             c.execute("TRUNCATE approval_consumptions")
         c.rollback()
+
+
+# --- The one transaction: the mint is atomic with the resolution (spec section 2). -------------
+#
+# These run only under a DSN, and that is the point rather than a limitation. What they assert is a
+# ROLLBACK, and a rollback is a property of a database session: the memory lane has no transaction
+# to leave half-finished, so there is nothing here a keyless run could stand in for. The SQL they
+# exercise is `RESOLVE_ROW` and `INSERT_TOKEN`, held against schema.sql by the keyless double-entry
+# gate above, so the two halves cover the statements' text and their behaviour separately.
+
+
+def _seed_review_row(conn, *, body="The round is $9M.") -> int:
+    """One unresolved review row, committed, with its generated id.
+
+    Committed by its own connection before a probe opens one, the reasoning
+    `test_the_approvals_table_refuses_update_delete_and_truncate` already carries: a rollback under
+    test would otherwise take the seed with it, and the assertions would then read an ABSENT row
+    where they mean to read an UNRESOLVED one - which is a different fact and a passing test.
+    """
+    from psycopg.types.json import Jsonb
+    handoff = {"reason_category": "boundary:approval_unverified", "detector_outage": "held",
+               "violating_span": "", "blocked_body": body, "recipient_domain": "example.test",
+               "recipient_jurisdiction": "US", "cited_field_values": {}, "thread_excerpt": "",
+               "proposed_alternative": None, "refinement_rounds": 0}
+    row = conn.execute("INSERT INTO review_queue (queue_name, handoff, enqueued_at) "
+                       "VALUES (%s,%s,%s) RETURNING id",
+                       ("human-review", Jsonb(handoff), T0)).fetchone()[0]
+    conn.commit()
+    return row
+
+
+def _row_state(conn, row_id: int):
+    return conn.execute("SELECT resolved_at, approved_by FROM review_queue WHERE id = %s",
+                        (row_id,)).fetchone()
+
+
+def _tokens_for(conn, tok: str):
+    return conn.execute("SELECT token, resolution_id FROM approvals WHERE token = %s",
+                        (tok,)).fetchall()
+
+
+def test_the_resolution_and_its_mint_survive_a_reconnect_as_one_durable_fact():
+    """The plain round-trip: resolve through one transaction, then read both halves back cold.
+
+    Read back through a SEPARATE connection, and through `PgApprovalStore` rather than through the
+    connection that wrote it, because what is asserted is that the transaction COMMITTED rather
+    than that a cursor remembers what it did.
+    """
+    from retinue.boundary.approvals import PgApprovalStore
+    from retinue.boundary.resolve import resolve_pg
+
+    dsn = _dsn_or_skip()
+    with _pg_conn() as seed:
+        row_id = _seed_review_row(seed)
+    tok = os.urandom(16).hex()
+    minted = resolve_pg(dsn, row_id=row_id, verdict="approve", at=T0, approved_by="reviewer-1",
+                        window=timedelta(hours=24), key=f"k-{tok[:8]}", body="The round is $9M.",
+                        tool="mcp__retinue__send_message", recipient_domain="example.test",
+                        token_id=tok)
+    assert minted is not None
+
+    store = PgApprovalStore(dsn)
+    assert store.get_token(tok) == minted        # all eight fields, by frozen-dataclass equality
+    assert store.consume(tok, T0) is True
+    assert store.consume(tok, T0) is False       # single use, across connections
+    with _pg_conn() as check:
+        resolved_at, approved_by = _row_state(check, row_id)
+        assert resolved_at is not None and approved_by == "reviewer-1"
+
+
+def test_a_mint_that_cannot_be_written_leaves_the_resolution_unwritten_too():
+    """THE ATOMICITY PROPERTY, and the whole reason step 5 exists: neither write, or both.
+
+    The forced failure is a caller-supplied token id that is already minted. In the shared
+    `resolve` that collision is refused by a read BEFORE the resolution, because that verb holds
+    two connections and cannot take the row back once it is written. `resolve_pg` inverts the order
+    deliberately: it writes the resolution, discovers the collision from `INSERT_TOKEN`'s own
+    rowcount, and RAISES - and the transaction takes the resolution back out with it. Same
+    observable contract, reached by the transaction rather than by the pre-read, which is what
+    makes this test an exercise of the transaction instead of an exercise of the guard.
+
+    Measured red before it was believed: an implementation committing between the UPDATE and the
+    INSERT leaves the second row resolved and tokenless, which is exactly the unresolvable row spec
+    section 2 forbids, and this test reddens on the `_row_state` assertion below.
+    """
+    from retinue.boundary.resolve import resolve_pg
+
+    dsn = _dsn_or_skip()
+    with _pg_conn() as seed:
+        first, second = _seed_review_row(seed), _seed_review_row(seed)
+    tok = os.urandom(16).hex()
+    common = dict(verdict="approve", at=T0, window=timedelta(hours=24), key=f"k-{tok[:8]}",
+                  body="The round is $9M.", tool="mcp__retinue__send_message",
+                  recipient_domain="example.test")
+    taken = resolve_pg(dsn, row_id=first, approved_by="reviewer-1", token_id=tok, **common)
+    assert taken is not None
+
+    with pytest.raises(ValueError):
+        resolve_pg(dsn, row_id=second, approved_by="reviewer-2", token_id=tok, **common)
+
+    with _pg_conn() as check:
+        # NEITHER write survived. The row is the half a committing implementation would leave.
+        assert _row_state(check, second) == (None, None)
+        # And the token still belongs to the row that legitimately minted it, unrewritten.
+        assert _tokens_for(check, tok) == [(tok, first)]
+    # The row survived the refusal, which is the finding: a corrected retry still resolves it.
+    again = resolve_pg(dsn, row_id=second, approved_by="reviewer-2",
+                       token_id=os.urandom(16).hex(), **common)
+    assert again is not None and again.resolution_id == second
+
+
+def test_the_two_verbs_mint_the_same_bindings_from_the_same_material():
+    """Double entry between the memory verb and the transactional one, which are two spellings of
+    one mint and can drift apart in silence.
+
+    `resolve_pg` builds its `ApprovalToken` itself rather than calling `resolve`, because the ORDER
+    of its steps is the property it exists for. That leaves two constructions of one record, and a
+    field dropped or crossed in either is invisible to every test driving only one of them. The
+    token id and the resolution id are held equal by construction here, since those are the two
+    fields that legitimately differ between any two mints.
+    """
+    from retinue.boundary.resolve import resolve_pg
+
+    dsn = _dsn_or_skip()
+    with _pg_conn() as seed:
+        row_id = _seed_review_row(seed)
+    tok = os.urandom(16).hex()
+    material = dict(verdict="approve", at=T0, approved_by="reviewer-1",
+                    window=timedelta(hours=24), key=f"k-{tok[:8]}", body="The round is $9M.",
+                    tool="mcp__retinue__send_message", recipient_domain="example.test")
+    durable = resolve_pg(dsn, row_id=row_id, token_id=tok, **material)
+    in_memory = resolve(row_id=row_id, token_id=tok, resolutions=MemoryResolutionLog(),
+                        approvals=MemoryApprovalStore(), **material)
+    assert durable is not None and in_memory is not None
+    assert durable == in_memory
+
+
+def test_a_rejection_through_the_transaction_resolves_the_row_and_mints_nothing():
+    """The verdict arm, in the lane where a resolution is a committed row rather than a dict entry.
+
+    Without it `resolve_pg` could answer None for a rejection having written nothing at all, and
+    every assertion above would still hold - while a row it left unresolved could be approved
+    afterwards by somebody else, which is the whole point of recording a rejection.
+    """
+    from retinue.boundary.resolve import resolve_pg
+
+    dsn = _dsn_or_skip()
+    with _pg_conn() as seed:
+        row_id = _seed_review_row(seed)
+    assert resolve_pg(dsn, row_id=row_id, verdict="reject", at=T0, approved_by="reviewer-1",
+                      window=timedelta(hours=24), key="", body="", tool="",
+                      recipient_domain="") is None
+    with _pg_conn() as check:
+        resolved_at, approved_by = _row_state(check, row_id)
+        assert resolved_at is not None and approved_by == "reviewer-1"
+
+
+def test_the_loser_of_a_double_resolution_mints_nothing_in_the_durable_lane():
+    """First-writer-wins, held where it is a real UPDATE against a real row.
+
+    `RESOLVE_ROW` carries `AND resolved_at IS NULL`, and the keyless gate pins that TEXT. What no
+    keyless run can show is the clause doing anything, because nothing keyless executes it. This is
+    the arm where a second resolver meets a row already resolved and comes away with nothing.
+    """
+    from retinue.boundary.resolve import resolve_pg
+
+    dsn = _dsn_or_skip()
+    with _pg_conn() as seed:
+        row_id = _seed_review_row(seed)
+    common = dict(row_id=row_id, verdict="approve", at=T0, window=timedelta(hours=24),
+                  key="k-double", body="The round is $9M.", tool="mcp__retinue__send_message",
+                  recipient_domain="example.test")
+    assert resolve_pg(dsn, approved_by="reviewer-1", token_id=os.urandom(16).hex(),
+                      **common) is not None
+    loser = os.urandom(16).hex()
+    assert resolve_pg(dsn, approved_by="reviewer-2", token_id=loser, **common) is None
+    with _pg_conn() as check:
+        assert _tokens_for(check, loser) == []            # the loser minted nothing at all
+        assert _row_state(check, row_id)[1] == "reviewer-1"

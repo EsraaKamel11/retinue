@@ -1,8 +1,9 @@
 """Operator CLI for the DSN lane: python -m retinue.boundary.resolve <row-id> --approve ...
 
 Reads the review row for the binding material that row actually carries, refuses an approval it
-could not bind, and otherwise resolves through `approvals.resolve` - the same verb with the same
-arguments the memory lane calls in-process. The memory lane never uses this module.
+could not bind, and otherwise resolves through `resolve_pg` below - the same verb with the same
+arguments the memory lane calls in-process, wrapped in one transaction. The memory lane never uses
+this module.
 
 **What a review row can and cannot supply, because it decided this file's shape.** The durable
 row stores a `Handoff` dump. That model carries `blocked_body` and `recipient_domain`, and it
@@ -22,22 +23,30 @@ now held by tests rather than by this paragraph: everything after the read lives
 `outcome_after_read`, a function of the row and a resolve callable, which the keyless lane drives
 end to end.
 
-**Two connections today, not one transaction, said plainly rather than claimed away.** Spec
-section 2 asks the mint to be atomic with the resolution, one transaction in Postgres.
-`PgResolutionLog.record` and `PgApprovalStore.put_token` each open their own connection and each
-commit on their own, so a crash between them leaves a resolved row with no token - the same
-unresolvable row named above. The plan's Task 4 step 5 owns the one-transaction wrapper and the
-contract test that pins it. Until that lands this module calls the two stores as they stand, and
-says so here rather than describing an atomicity it has not got.
+**One transaction, and the paragraph that stood here said otherwise.** Spec section 2 asks the
+mint to be atomic with the resolution, and until Task 4 this module called `PgResolutionLog.record`
+and `PgApprovalStore.put_token`, which open a connection each and commit separately: a crash
+between them left a resolved row with no token, the same unresolvable row named above. `resolve_pg`
+below is that wrapper - one connection, one transaction over the resolution and the insert, so
+neither survives without the other - and `main` calls it. The claim is a measured one rather than a
+described one: `test_a_mint_that_cannot_be_written_leaves_the_resolution_unwritten_too` forces the
+insert to fail after the update has succeeded and reads both tables back, and it was watched red
+against an implementation that committed between the two.
+
+**The read is still its own connection, and that is not the atomicity being claimed.** `main`
+fetches the review row on one connection and resolves on another. What section 2 requires is that
+the MINT be atomic with the RESOLUTION, which are the two writes; a stale read costs the operator a
+refusal or a first-writer-wins None, and never a half-written pair.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import secrets
 import sys
 from datetime import datetime, timedelta
 
-from retinue.boundary.approvals import PgApprovalStore, PgResolutionLog, resolve
+from retinue.boundary.approvals import (INSERT_TOKEN, RESOLVE_ROW, ApprovalToken, body_digest_of)
 
 #: Hoisted for the reason every statement in approvals.py is hoisted: it runs in the DSN lane and
 #: nowhere else, so the keyless double-entry gate in tests/boundary/test_approvals.py reads the
@@ -76,9 +85,11 @@ def outcome_after_read(row, *, row_id: int, approve: bool, by: str, at: datetime
     `resolve_fn`, which is the row-destroying order this module exists to prevent, passed the
     entire suite.
 
-    `resolve_fn` is `approvals.resolve` with its two stores already bound. Exit 2 is the refusal
-    family, which is how the caller knows to print to stderr; exit 1 is an approval that minted
-    nothing, which for an approving operator is a failure to get what they asked for.
+    `resolve_fn` is the resolving verb with its destination already bound - `resolve_pg` with the
+    DSN closed over, in `main` below, and a plain function in the keyless tests that drive this.
+    Exit 2 is the refusal family, which is how the caller knows to print to stderr; exit 1 is an
+    approval that minted nothing, which for an approving operator is a failure to get what they
+    asked for.
     """
     if row is None:
         return 2, f"no review row {row_id}"
@@ -96,6 +107,61 @@ def outcome_after_read(row, *, row_id: int, approve: bool, by: str, at: datetime
         return (1 if approve else 0,
                 "resolved: no token minted (rejection, or the row was already resolved)")
     return 0, f"resolved by {by}; token {token.token} expires {token.expires_at.isoformat()}"
+
+
+def resolve_pg(dsn: str, *, row_id: int, verdict: str, at: datetime, approved_by: str,
+               window: timedelta, key: str, body: str, tool: str, recipient_domain: str,
+               token_id: str | None = None) -> ApprovalToken | None:
+    """`resolve` for the DSN lane: the resolution and its mint in ONE transaction (spec section 2).
+
+    Same answers as the memory verb - a token, or None for a rejection and for the loser of a
+    double resolution - and one difference in HOW the collision is refused, which is the whole
+    reason this function exists rather than calling `resolve` with the two Pg stores.
+
+    **The order is inverted on purpose, and the transaction is what permits it.** `resolve` checks
+    for a colliding token id BEFORE it records the resolution, because it holds two connections
+    that commit separately: discovering the collision afterwards would leave a row resolved,
+    tokenless and unresolvable for good. Here the resolution and the insert are one atomic unit, so
+    the check can come from `INSERT_TOKEN`'s own rowcount - which is the authoritative answer rather
+    than a read that another writer can invalidate a moment later - and the raise takes the
+    resolution back out with it. A pre-read here would be a second, weaker copy of a guarantee the
+    database is already giving.
+
+    **What the caller sees is therefore unchanged: a colliding id raises and writes nothing.** One
+    contract difference is real and is named rather than left to be found. `resolve` runs its
+    collision guard above the verdict check, so a REJECTION carrying an already-minted token id
+    raises there; here a rejection never reaches the insert, so it resolves the row and answers
+    None. No caller reaches it - `main` below supplies no token id, and a rejection has no token to
+    collide - and the two verbs are held to the same bindings by
+    `test_the_two_verbs_mint_the_same_bindings_from_the_same_material`.
+
+    The two statements are the module-level constants `approvals.py` hoists, never respelled here:
+    the keyless double-entry gate holds those against schema.sql, and a copy typed into this
+    function would run SQL that gate has never read.
+    """
+    import psycopg
+    # One connection, one transaction. psycopg's connection context manager commits on a clean
+    # exit and ROLLS BACK on an exception, so every `raise` below un-writes the update above it.
+    with psycopg.connect(dsn) as conn:
+        if conn.execute(RESOLVE_ROW, (at, approved_by, row_id)).rowcount != 1:
+            return None                      # somebody resolved this row first; nothing to mint
+        if verdict != "approve":
+            return None
+        token = ApprovalToken(token=token_id or secrets.token_hex(16), idempotency_key=key,
+                              body_digest=body_digest_of(body), tool=tool,
+                              recipient_domain=recipient_domain, resolution_id=row_id,
+                              minted_at=at, expires_at=at + window)
+        minted = conn.execute(INSERT_TOKEN, (token.token, token.idempotency_key,
+                                             token.body_digest, token.tool,
+                                             token.recipient_domain, token.resolution_id,
+                                             token.minted_at, token.expires_at)).rowcount
+        if minted != 1:
+            # `ON CONFLICT (token) DO NOTHING` makes this a rowcount rather than an error, so the
+            # transaction is still usable and the rollback below is ours to trigger deliberately.
+            raise ValueError(f"token id {token.token!r} is already minted, so nothing was "
+                             f"resolved: review row {row_id} is untouched and can still be "
+                             "resolved")
+        return token
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,8 +194,7 @@ def main(argv: list[str] | None = None) -> int:
         row = cur.fetchone()
 
     def resolve_fn(**kwargs):
-        return resolve(resolutions=PgResolutionLog(args.dsn),
-                       approvals=PgApprovalStore(args.dsn), **kwargs)
+        return resolve_pg(args.dsn, **kwargs)
 
     code, message = outcome_after_read(row, row_id=args.row_id, approve=args.approve,
                                        by=args.by, at=datetime.fromisoformat(args.at),

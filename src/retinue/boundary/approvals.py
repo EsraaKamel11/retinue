@@ -184,7 +184,10 @@ def resolve(*, row_id: int, verdict: str, at: datetime, approved_by: str,
         # Reachable now only by a genuine race - another caller minting this id between the check
         # above and this insert - which a single-threaded caller cannot reach and CSPRNG ids do
         # not reach in practice. It still leaves the resolved row tokenless, which no check here
-        # can close and one transaction can: the plan's Task 4 step 5, for the DSN lane.
+        # can close and one transaction can. The DSN lane has that transaction:
+        # `resolve.resolve_pg` writes both under one connection and rolls the resolution back when
+        # the insert finds the id taken, so this residual belongs to the memory lane alone, where
+        # the two stores are dicts and there is no crash to survive.
         return None
     return token
 
