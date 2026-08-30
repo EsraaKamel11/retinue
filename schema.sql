@@ -23,8 +23,17 @@ DROP INDEX IF EXISTS idx_touchpoints_investor_ts;
 CREATE INDEX IF NOT EXISTS idx_touchpoints_investor_seq
     ON touchpoints (investor_id, seq);
 -- Append-only: no UPDATE, no DELETE, enforced in the database not in prose.
+--
+-- ONE function, serving every append-only table here, so the message names the table it fired for
+-- rather than the table it was first written for. It said 'touchpoints is append-only' on all six
+-- triggers until the approval tables arrived and an operator tripping the guard on `approvals` was
+-- handed the name of a table they had not touched. TG_TABLE_NAME is the trigger's own view of what
+-- it is protecting, so this stays one function and gains no per-table copy. The function's NAME
+-- still says touchpoints and a PL/pgSQL context line still shows it; renaming it would need
+-- DROP ... CASCADE and six trigger recreations in a file that advertises exactly one destructive
+-- statement, which is a worse trade than the residual it would buy.
 CREATE OR REPLACE FUNCTION touchpoints_append_only() RETURNS trigger AS $$
-BEGIN RAISE EXCEPTION 'touchpoints is append-only'; END;
+BEGIN RAISE EXCEPTION '% is append-only', TG_TABLE_NAME; END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_touchpoints_append_only ON touchpoints;
 CREATE TRIGGER trg_touchpoints_append_only
@@ -63,10 +72,15 @@ CREATE TABLE IF NOT EXISTS review_queue (
     enqueued_at TIMESTAMPTZ NOT NULL,
     resolved_at TIMESTAMPTZ
 );
--- The approval bridge (spec: 2026-08-30-approval-bridge-design.md). Both tables are append-only
--- with the same trigger pair the touchpoints table carries: a mint row and a consumption row
--- are only ever inserted, and single use is the primary key refusing a second consumption.
+-- The reviewer's identity on the resolution, which is the provenance a token's `resolution_id`
+-- reaches for (spec section 1, amended 2026-08-30). Added by ALTER because CREATE TABLE IF NOT
+-- EXISTS no-ops on the existing table above and would report success while the column never
+-- appeared, which is the route this file's opening note prescribes.
 ALTER TABLE review_queue ADD COLUMN IF NOT EXISTS approved_by TEXT;
+-- The approval bridge's own two tables (spec: 2026-08-30-approval-bridge-design.md). Both are
+-- append-only with the same trigger pair the touchpoints table carries: a mint row and a
+-- consumption row are only ever inserted, and single use is the primary key refusing a second
+-- consumption.
 CREATE TABLE IF NOT EXISTS approvals (
     token            TEXT PRIMARY KEY,
     idempotency_key  TEXT NOT NULL,

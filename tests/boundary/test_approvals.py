@@ -255,6 +255,23 @@ def _pg_store():
     return PgApprovalStore(dsn)
 
 
+def _pg_conn():
+    """A raw connection, carrying the same skip, fail and bootstrap sequence as `_pg_store`.
+
+    psycopg is imported inside, not at module scope, for the reason the module under test imports
+    it inside `_conn`: the keyless lane never pays for the DSN lane's dependency.
+    """
+    dsn = os.environ.get("RETINUE_PG_DSN")
+    if not dsn:
+        if os.environ.get("RETINUE_PG_REQUIRED") == "1":
+            pytest.fail("RETINUE_PG_REQUIRED=1 but RETINUE_PG_DSN is unset")
+        pytest.skip("RETINUE_PG_DSN unset: Postgres lane skipped")
+    import psycopg
+    from retinue.ledger.postgres import bootstrap
+    bootstrap(dsn)
+    return psycopg.connect(dsn)
+
+
 def test_pg_half_honours_the_same_contract():
     s = _pg_store()
     tok = os.urandom(16).hex()
@@ -262,6 +279,70 @@ def test_pg_half_honours_the_same_contract():
     assert s.put_token(t) is True
     assert s.put_token(t) is False
     got = s.get_token(tok)
-    assert got is not None and got.idempotency_key == t.idempotency_key
+    assert got is not None, "the mint row did not read back at all"
+    # ALL EIGHT FIELDS, not one. `ApprovalToken(*row)` binds by POSITION, so a swap of `tool` and
+    # `recipient_domain` in SELECT_TOKEN round-trips through a single-field check in silence, and
+    # those two are exactly the fields the spec's 2026-08-30 amendment added to close an
+    # authorization hole. Frozen dataclass equality compares the whole row in one assertion.
+    # Aware datetimes compare as INSTANTS, so a session timezone other than UTC still matches,
+    # which is the same reasoning test_review_queue.py:162 already rests on.
+    assert got == t
     assert s.consume(tok, T0) is True
     assert s.consume(tok, T0) is False
+
+
+def test_the_approvals_table_refuses_update_delete_and_truncate():
+    """The append-only claim, asserted where a future edit can redden it.
+
+    The DDL's four triggers were probed by hand once and the transcript lived in a report, so a
+    dropped `CREATE TRIGGER` line reddened nothing in the tree. This is that probe as a test,
+    mirroring `tests/ledger/test_postgres_enforcement.py:18-32` for the two tables this module
+    owns. It lives here rather than beside that file because the tables belong to the boundary,
+    the same way `test_review_queue.py` keeps the durable queue's own DSN test in this directory.
+
+    The seed is committed by its own connection before the probes open theirs, which answers the
+    hazard the mirrored test answers with an explicit commit: the UPDATE's raise rolls its
+    transaction back, an uncommitted seed would vanish with it, and the DELETE below would then
+    fire a row-level trigger on zero rows and raise nothing at all.
+
+    THE MESSAGE IS ASSERTED, not only the exception class. Both tables lean on one shared trigger
+    function, so a trigger wired to the wrong table would still raise and still pass a
+    class-only check. Naming the table is what makes this test about THIS table.
+    """
+    import psycopg
+    s = _pg_store()
+    tok = os.urandom(16).hex()
+    assert s.put_token(token(tok=tok, key=f"k-{tok[:8]}")) is True
+    with _pg_conn() as c:
+        with pytest.raises(psycopg.errors.RaiseException, match="approvals is append-only"):
+            c.execute("UPDATE approvals SET tool='x' WHERE token=%s", (tok,))
+        c.rollback()
+        with pytest.raises(psycopg.errors.RaiseException, match="approvals is append-only"):
+            c.execute("DELETE FROM approvals WHERE token=%s", (tok,))
+        c.rollback()
+        # Statement-level, and the reason it is a separate trigger: a row-level trigger CANNOT
+        # fire on TRUNCATE, so without this one the table is emptied in silence.
+        with pytest.raises(psycopg.errors.RaiseException, match="approvals is append-only"):
+            c.execute("TRUNCATE approvals")
+        c.rollback()
+
+
+def test_the_consumption_table_refuses_update_delete_and_truncate():
+    """The other half of the same claim. Single use rests on this row being unrewritable."""
+    import psycopg
+    s = _pg_store()
+    tok = os.urandom(16).hex()
+    assert s.consume(tok, T0) is True
+    with _pg_conn() as c:
+        with pytest.raises(psycopg.errors.RaiseException,
+                           match="approval_consumptions is append-only"):
+            c.execute("UPDATE approval_consumptions SET consumed_at=%s WHERE token=%s", (T0, tok))
+        c.rollback()
+        with pytest.raises(psycopg.errors.RaiseException,
+                           match="approval_consumptions is append-only"):
+            c.execute("DELETE FROM approval_consumptions WHERE token=%s", (tok,))
+        c.rollback()
+        with pytest.raises(psycopg.errors.RaiseException,
+                           match="approval_consumptions is append-only"):
+            c.execute("TRUNCATE approval_consumptions")
+        c.rollback()
