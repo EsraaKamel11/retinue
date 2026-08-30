@@ -63,3 +63,37 @@ CREATE TABLE IF NOT EXISTS review_queue (
     enqueued_at TIMESTAMPTZ NOT NULL,
     resolved_at TIMESTAMPTZ
 );
+-- The approval bridge (spec: 2026-08-30-approval-bridge-design.md). Both tables are append-only
+-- with the same trigger pair the touchpoints table carries: a mint row and a consumption row
+-- are only ever inserted, and single use is the primary key refusing a second consumption.
+ALTER TABLE review_queue ADD COLUMN IF NOT EXISTS approved_by TEXT;
+CREATE TABLE IF NOT EXISTS approvals (
+    token            TEXT PRIMARY KEY,
+    idempotency_key  TEXT NOT NULL,
+    body_digest      TEXT NOT NULL,
+    tool             TEXT NOT NULL,
+    recipient_domain TEXT NOT NULL,
+    resolution_id    BIGINT NOT NULL,
+    minted_at        TIMESTAMPTZ NOT NULL,
+    expires_at       TIMESTAMPTZ NOT NULL
+);
+DROP TRIGGER IF EXISTS trg_approvals_append_only ON approvals;
+CREATE TRIGGER trg_approvals_append_only
+    BEFORE UPDATE OR DELETE ON approvals
+    FOR EACH ROW EXECUTE FUNCTION touchpoints_append_only();
+DROP TRIGGER IF EXISTS trg_approvals_no_truncate ON approvals;
+CREATE TRIGGER trg_approvals_no_truncate
+    BEFORE TRUNCATE ON approvals
+    FOR EACH STATEMENT EXECUTE FUNCTION touchpoints_append_only();
+CREATE TABLE IF NOT EXISTS approval_consumptions (
+    token       TEXT PRIMARY KEY,
+    consumed_at TIMESTAMPTZ NOT NULL
+);
+DROP TRIGGER IF EXISTS trg_approval_consumptions_append_only ON approval_consumptions;
+CREATE TRIGGER trg_approval_consumptions_append_only
+    BEFORE UPDATE OR DELETE ON approval_consumptions
+    FOR EACH ROW EXECUTE FUNCTION touchpoints_append_only();
+DROP TRIGGER IF EXISTS trg_approval_consumptions_no_truncate ON approval_consumptions;
+CREATE TRIGGER trg_approval_consumptions_no_truncate
+    BEFORE TRUNCATE ON approval_consumptions
+    FOR EACH STATEMENT EXECUTE FUNCTION touchpoints_append_only();
