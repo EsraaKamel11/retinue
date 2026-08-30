@@ -31,6 +31,19 @@ A row, never a bare string:
 A token is evidence that one human resolution approved one body for one act. Anything weaker -
 presence, format, freshness alone - does not validate.
 
+(Amended 2026-08-30, from external review: a colleague's independent build of this row, shared
+as a summary and never merged, surfaced one real authorization hole and one provenance gap in
+the shape above, and both fixes enter the design. First, the binding widens: the token also
+carries `tool` and `recipient_domain`, validated against the actual call's tool name and the
+draft's recipient domain. Key plus digest alone would validate a token against a send that
+reuses the approved key and body toward a DIFFERENT recipient or through a different tool;
+approval means "this body, to this destination, through this tool", and now the token says so.
+Second, the resolution records `approved_by`, the reviewer's identity, alongside `resolved_at`:
+for a human-in-the-loop product, which human is the provenance that matters, and the token's
+`resolution_id` now reaches it. The consumption primitive, the dual store halves, and the
+evidence-bar discipline are unchanged; the independent build converging on single use, digest
+binding, expiry and atomic consumption is recorded here as validation of the shape.)
+
 ## 2. The mint
 
 `review_queue.resolved_at` gains its first writer. A boundary function
@@ -105,6 +118,8 @@ Adopted from the Phase 0 brief verbatim; the row flips on these and never on eff
   boundary pre-check;
 - a reused token is refused, and the refusal survives two callers racing for it;
 - an expired token is refused;
+- a token bound to a different tool or a different recipient domain is refused at the boundary
+  pre-check;
 - an absent token still denies exactly as today;
 - a double resolution mints exactly one token, the second resolver reading first-writer-wins;
 - the captured ask payload drives the full path;
