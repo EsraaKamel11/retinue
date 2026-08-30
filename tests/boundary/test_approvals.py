@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from retinue.boundary.approvals import (ApprovalToken, MemoryApprovalStore, body_digest_of)
+from retinue.boundary.approvals import (ApprovalToken, MemoryApprovalStore, MemoryResolutionLog,
+                                        body_digest_of, resolve)
 
 T0 = datetime(2030, 1, 2, tzinfo=timezone.utc)
 SCHEMA = Path(__file__).resolve().parents[2] / "schema.sql"
@@ -50,6 +51,75 @@ def test_consume_of_a_never_minted_token_still_wins_only_once():
     s = MemoryApprovalStore()
     assert s.consume("c" * 32, T0) is True
     assert s.consume("c" * 32, T0) is False
+
+
+# --- The resolution: the design's single named update, and the mint that IS the resolution. --
+
+
+def test_an_approving_resolution_writes_once_and_mints_a_bound_token():
+    res, appr = MemoryResolutionLog(), MemoryApprovalStore()
+    t = resolve(row_id=7, verdict="approve", at=T0, approved_by="reviewer-1",
+                window=timedelta(hours=24), resolutions=res, approvals=appr,
+                key="k-7", body="hello", tool="mcp__retinue__send_message",
+                recipient_domain="example.test", token_id="d" * 32)
+    assert t is not None and t.resolution_id == 7
+    assert t.body_digest == body_digest_of("hello")
+    assert t.expires_at == T0 + timedelta(hours=24)
+    assert appr.get_token("d" * 32) == t
+
+
+def test_a_double_resolution_is_first_writer_wins_and_the_loser_mints_nothing():
+    res, appr = MemoryResolutionLog(), MemoryApprovalStore()
+    first = resolve(row_id=7, verdict="approve", at=T0, approved_by="reviewer-1",
+                    window=timedelta(hours=24), resolutions=res, approvals=appr,
+                    key="k-7", body="hello", tool="t", recipient_domain="d",
+                    token_id="e" * 32)
+    second = resolve(row_id=7, verdict="approve", at=T0, approved_by="reviewer-2",
+                     window=timedelta(hours=24), resolutions=res, approvals=appr,
+                     key="k-7", body="hello", tool="t", recipient_domain="d",
+                     token_id="f" * 32)
+    assert first is not None and second is None
+    assert appr.get_token("f" * 32) is None
+
+
+def test_a_rejecting_resolution_writes_resolved_and_mints_nothing():
+    res, appr = MemoryResolutionLog(), MemoryApprovalStore()
+    out = resolve(row_id=9, verdict="reject", at=T0, approved_by="reviewer-1",
+                  window=timedelta(hours=24), resolutions=res, approvals=appr,
+                  key="k-9", body="no", tool="t", recipient_domain="d")
+    assert out is None
+    assert res.record(9, T0, "reviewer-2") is False   # the row is already resolved
+
+
+def test_first_writer_wins_is_per_row_and_never_a_single_global_latch():
+    """A `record` that latched on the FIRST call of any kind passes both tests above.
+
+    It would refuse every resolution after the first one the process ever made, which is a queue
+    that resolves exactly one row per restart, and neither test here would notice.
+    """
+    res, appr = MemoryResolutionLog(), MemoryApprovalStore()
+    for row, tok in ((7, "1" * 32), (8, "2" * 32)):
+        t = resolve(row_id=row, verdict="approve", at=T0, approved_by="reviewer-1",
+                    window=timedelta(hours=24), resolutions=res, approvals=appr,
+                    key=f"k-{row}", body="hello", tool="t", recipient_domain="d", token_id=tok)
+        assert t is not None and t.resolution_id == row
+
+
+def test_an_unnamed_token_is_minted_with_a_32_hex_id_and_two_mints_differ():
+    """Spec section 1: an opaque random identifier, 32 hex chars from a CSPRNG.
+
+    Every other test in this file hands `token_id` in, so the default id - the one every real
+    resolution uses, since only the tests and the doubled-mint case ever name a token - is
+    asserted by nothing without this. A default of `"token"`, or of the row id, would sail
+    through the whole file and collide on the second mint in production.
+    """
+    res, appr = MemoryResolutionLog(), MemoryApprovalStore()
+    minted = [resolve(row_id=row, verdict="approve", at=T0, approved_by="reviewer-1",
+                      window=timedelta(hours=24), resolutions=res, approvals=appr,
+                      key=f"k-{row}", body="hello", tool="t", recipient_domain="d")
+              for row in (11, 12)]
+    assert all(re.fullmatch(r"[0-9a-f]{32}", t.token) for t in minted)
+    assert minted[0].token != minted[1].token
 
 
 # --- Double entry between the three SQL constants and schema.sql, read KEYLESSLY. ------------
@@ -236,6 +306,212 @@ def test_the_gate_catches_a_conflict_target_that_is_not_the_primary_key():
     mutant = INSERT_TOKEN.replace("ON CONFLICT (token)", "ON CONFLICT (idempotency_key)")
     assert any("conflict_target_not_the_primary_key" in f
                for f in insert_findings(mutant, _schema()))
+
+
+# --- The SAME double entry over the design's ONE named update, and over the CLI's read. ------
+#
+# `RESOLVE_ROW` is the only UPDATE this design contains (spec section 2, named there as such) and
+# `SELECT_HANDOFF` is the operator CLI's only read. Both execute in the DSN lane and nowhere else,
+# so every word of the section above applies to them unchanged. Three legs the INSERT gate above
+# has no need of:
+#
+#   * the SET list is pinned to the resolution's two columns. An update that stopped writing
+#     `approved_by` would resolve rows carrying no reviewer, and `approved_by` is precisely the
+#     provenance the spec's 2026-08-30 amendment added - which human approved this.
+#   * `AND resolved_at IS NULL` is pinned, because that clause IS the test-and-set. Without it the
+#     UPDATE succeeds against an already-resolved row, `rowcount == 1` comes back for the second
+#     resolver too, and first-writer-wins - the whole reason a double resolution mints exactly one
+#     token - stops holding in the lane the default suite never runs.
+#   * the WHERE keys on the PRIMARY KEY, so `rowcount == 1` means one row rather than one of many.
+#
+# `approved_by` reaches `review_queue` by ALTER and is absent from the `CREATE TABLE` block, so the
+# declared set is read from BOTH statements. A gate reading only the block would redden on correct
+# SQL, which is the trap Task 1's review named as its M4 before this gate existed.
+
+_UPDATE = re.compile(r"UPDATE (\w+) SET (.+?) WHERE (.+)$")
+_ALTER = re.compile(r"ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)([^;]*);")
+
+
+def _declared_all(schema_text: str, table: str) -> dict[str, str]:
+    """Every column the schema declares for `table`, from its CREATE TABLE and its ALTERs."""
+    block = _table_block(schema_text, table)
+    declared = {} if block is None else _declared(block)
+    for m in _ALTER.finditer(schema_text):
+        if m.group(1) == table:
+            declared[m.group(2)] = m.group(0)
+    return declared
+
+
+def update_findings(sql: str, schema_text: str,
+                    expected: tuple[str, ...] = ("resolved_at", "approved_by")) -> list[str]:
+    """What schema.sql disagrees with in the resolution UPDATE. Empty means one fact, two
+    spellings. The guard clause and the keyed column are read as well as the column names,
+    because they are what make `rowcount == 1` mean first-writer-wins on one row."""
+    m = _UPDATE.match(sql.strip())
+    if not m:
+        return [f"update_unparsed: not an UPDATE t SET ... WHERE ...:\n{sql}"]
+    table, sets, where = m.groups()
+    assignments = [a.strip() for a in sets.split(",")]
+    columns = [a.split("=")[0].strip() for a in assignments]
+    findings: list[str] = []
+    if tuple(columns) != tuple(expected):
+        findings.append(f"update_sets: the resolution writes {columns} where the design's one "
+                        f"named update writes {list(expected)}")
+    if sets.count("%s") != len(assignments):
+        findings.append(f"placeholder_arity: {len(assignments)} assignments against "
+                        f"{sets.count('%s')} placeholders")
+    if not re.search(r"\bAND\s+resolved_at IS NULL\b", where):
+        findings.append("guard_dropped: the WHERE carries no `AND resolved_at IS NULL`, so the "
+                        "update stops being a test-and-set and the second resolver wins too")
+    declared = _declared_all(schema_text, table)
+    if not declared:
+        # Returned rather than appended, for the reason insert_findings returns here: with no
+        # table there is nothing to read and every check below would hold vacuously.
+        return findings + [f"table_undeclared: schema.sql declares no table named {table!r}"]
+    undeclared = sorted(set(columns) - set(declared))
+    if undeclared:
+        findings.append(f"update_sets_undeclared: {undeclared} against a table declaring "
+                        f"{sorted(declared)}")
+    key = re.match(r"(\w+) = %s\b", where)
+    if key is None or "PRIMARY KEY" not in declared.get(key.group(1), ""):
+        named = "nothing" if key is None else repr(key.group(1))
+        findings.append(f"update_not_keyed_on_the_primary_key: the WHERE keys on {named}, so "
+                        "`rowcount == 1` would stop meaning one identified row")
+    return findings
+
+
+def test_the_resolution_update_and_the_review_queue_table_are_one_fact_in_two_spellings():
+    from retinue.boundary.approvals import RESOLVE_ROW
+    assert update_findings(RESOLVE_ROW, _schema()) == []
+
+
+def test_the_clis_read_of_the_review_row_is_held_against_the_same_schema():
+    """The CLI's SELECT is a fourth statement that only the DSN lane executes, so it is pinned
+    the way the other three are rather than left to be discovered by an operator."""
+    from retinue.boundary.resolve import SELECT_HANDOFF
+    assert select_findings(SELECT_HANDOFF, _schema(), ("handoff",)) == []
+
+
+def test_the_gate_reads_the_column_that_arrives_by_alter_and_not_only_the_create_block():
+    """`approved_by` is added by `ALTER TABLE review_queue ADD COLUMN IF NOT EXISTS`.
+
+    A gate parsing only the `CREATE TABLE` block would call the correct UPDATE undeclared, which
+    is the failure Task 1's review predicted as its M4. Driven both ways: the real schema is
+    clean above, and a schema with the ALTER line deleted reddens on that exact column.
+    """
+    from retinue.boundary.approvals import RESOLVE_ROW
+    without = re.sub(r"ALTER TABLE review_queue[^;]*;", "", _schema())
+    assert "approved_by" not in without, "the ALTER is still there, so this plants nothing"
+    assert any("update_sets_undeclared" in f for f in update_findings(RESOLVE_ROW, without))
+
+
+def test_the_gate_catches_a_resolution_pointed_at_a_table_the_schema_never_declares():
+    from retinue.boundary.approvals import RESOLVE_ROW
+    mutant = RESOLVE_ROW.replace("review_queue", "no_such_table")
+    assert mutant != RESOLVE_ROW, "the constant names another table, so this plants nothing"
+    assert any("table_undeclared" in f for f in update_findings(mutant, _schema()))
+
+
+def test_the_gate_catches_a_resolution_that_stops_recording_the_reviewer():
+    """The provenance leg: which human approved this act (spec section 1, amended 2026-08-30)."""
+    from retinue.boundary.approvals import RESOLVE_ROW
+    mutant = RESOLVE_ROW.replace(", approved_by = %s", "")
+    assert mutant != RESOLVE_ROW, "nothing writes approved_by, so this plants nothing"
+    assert any("update_sets" in f for f in update_findings(mutant, _schema()))
+
+
+def test_the_gate_catches_a_set_column_the_table_never_declares():
+    from retinue.boundary.approvals import RESOLVE_ROW
+    mutant = RESOLVE_ROW.replace("approved_by =", "approved_by_whom =")
+    assert any("update_sets_undeclared" in f for f in update_findings(
+        mutant, _schema(), expected=("resolved_at", "approved_by_whom")))
+
+
+def test_the_gate_catches_a_resolution_that_drops_its_first_writer_wins_guard():
+    """The mutant that matters most: without the guard the second resolver also reads
+    `rowcount == 1`, and a double resolution mints two tokens over one human act."""
+    from retinue.boundary.approvals import RESOLVE_ROW
+    mutant = RESOLVE_ROW.replace(" AND resolved_at IS NULL", "")
+    assert mutant != RESOLVE_ROW, "the guard is already absent, so this plants nothing"
+    assert any("guard_dropped" in f for f in update_findings(mutant, _schema()))
+
+
+def test_the_gate_catches_a_resolution_keyed_on_something_other_than_the_row_identity():
+    from retinue.boundary.approvals import RESOLVE_ROW
+    mutant = RESOLVE_ROW.replace("WHERE id = %s", "WHERE queue_name = %s")
+    assert mutant != RESOLVE_ROW, "the update is not keyed on id, so this plants nothing"
+    assert any("update_not_keyed_on_the_primary_key" in f
+               for f in update_findings(mutant, _schema()))
+
+
+def test_the_gate_catches_an_update_whose_placeholders_do_not_match_its_assignments():
+    from retinue.boundary.approvals import RESOLVE_ROW
+    mutant = RESOLVE_ROW.replace("approved_by = %s", "approved_by = 'nobody'")
+    assert any("placeholder_arity" in f for f in update_findings(mutant, _schema()))
+
+
+def test_the_gate_catches_a_statement_that_is_not_an_update_at_all():
+    from retinue.boundary.approvals import RESOLVE_ROW
+    assert any("update_unparsed" in f
+               for f in update_findings(RESOLVE_ROW.split(" WHERE ")[0], _schema()))
+
+
+# --- The operator CLI's binding material, read KEYLESSLY. -------------------------------------
+#
+# The CLI itself needs a DSN. What it BINDS a token to does not, and that is where the hazard is:
+# the durable review row stores a `Handoff` dump, which carries `blocked_body` and
+# `recipient_domain` and carries neither an idempotency key nor a tool name. A CLI reading `body`
+# or `tool` off that dump would bind every token it ever minted to the empty string, and because
+# the resolution is first-writer-wins the row would be spent for good on a token no send could
+# ever validate against. So the derivation is a function, and the function is pinned here.
+
+
+def _handoff_dump() -> dict:
+    """A REAL `Handoff`, dumped the way `DurableQueues.put` dumps it into the row.
+
+    Built from the imported model rather than typed as a literal, so a field renamed in the
+    vendored wheel reddens here instead of in an operator's terminal.
+    """
+    from chaperone.gates.handoff import Handoff
+    return Handoff(reason_category="act:figure_not_in_record", detector_outage=None,
+                   violating_span="$9M", blocked_body="The round is $9M.",
+                   recipient_domain="example.test", recipient_jurisdiction="US",
+                   cited_field_values={}, thread_excerpt="", proposed_alternative=None,
+                   refinement_rounds=0).model_dump()
+
+
+def test_the_binding_is_read_from_the_fields_the_stored_row_actually_carries():
+    from retinue.boundary.resolve import binding_material
+    binding, missing = binding_material(_handoff_dump(), key="k-7",
+                                        tool="mcp__retinue__send_message")
+    assert missing == []
+    assert binding == {"key": "k-7", "body": "The round is $9M.",
+                       "tool": "mcp__retinue__send_message",
+                       "recipient_domain": "example.test"}
+
+
+def test_every_source_that_supplied_nothing_is_named_rather_than_bound_to_the_empty_string():
+    from retinue.boundary.resolve import binding_material
+    binding, missing = binding_material({}, key=None, tool=None)
+    assert missing == ["--key", "--tool", "the handoff's blocked_body",
+                       "the handoff's recipient_domain"]
+    assert binding == {"key": "", "body": "", "tool": "", "recipient_domain": ""}
+
+
+def test_an_approval_that_cannot_bind_refuses_before_it_ever_opens_a_connection(capsys):
+    """The order is the property: the refusal precedes the resolution, never follows it.
+
+    `record` is first-writer-wins, so an approve that resolved the row and only then found it
+    could not bind would leave a row nobody can resolve again and a token nobody can spend, with
+    no way back but a fresh draft. The DSN here is deliberately unusable and psycopg rejects the
+    string before any network, so a guard that moved below the read raises instead of returning 2.
+    """
+    from retinue.boundary.resolve import main
+    code = main(["7", "--approve", "--by=reviewer-1", "--at=2030-01-02T00:00:00+00:00",
+                 "--dsn=not a dsn at all"])
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "--key" in err and "--tool" in err
 
 
 def _pg_store():

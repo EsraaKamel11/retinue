@@ -114,3 +114,62 @@ class PgApprovalStore:
         with self._conn() as conn, conn.cursor() as cur:
             cur.execute(INSERT_CONSUMPTION, (token, at))
             return cur.rowcount == 1
+
+
+class MemoryResolutionLog:
+    """First-writer-wins over review rows: the memory half of the design's one named update."""
+
+    def __init__(self) -> None:
+        self._resolved: dict[int, tuple[datetime, str]] = {}
+
+    def record(self, row_id: int, at: datetime, approved_by: str) -> bool:
+        if row_id in self._resolved:
+            return False
+        self._resolved[row_id] = (at, approved_by)
+        return True
+
+
+#: The design's SINGLE named update (spec section 2), hoisted for the reason the three statements
+#: above are hoisted, and held against schema.sql by the same keyless gate. Three clauses in it
+#: carry weight that no keyless run can otherwise reach:
+#:
+#: `AND resolved_at IS NULL` IS the test-and-set. Drop it and the UPDATE succeeds against a row
+#: already resolved, so `rowcount == 1` comes back for the second resolver too and a double
+#: resolution mints a second token over one human act - the exact property `resolve` rests on.
+#: `approved_by` is written in the same statement rather than a second one, because which human
+#: approved is the provenance the token's `resolution_id` reaches for. And the WHERE keys on the
+#: primary key, so `rowcount == 1` names one identified row rather than one of several.
+RESOLVE_ROW = ("UPDATE review_queue SET resolved_at = %s, approved_by = %s "
+               "WHERE id = %s AND resolved_at IS NULL")
+
+
+class PgResolutionLog:
+    def __init__(self, dsn: str) -> None:
+        self._dsn = dsn
+
+    def record(self, row_id: int, at: datetime, approved_by: str) -> bool:
+        import psycopg
+        with psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(RESOLVE_ROW, (at, approved_by, row_id))
+            return cur.rowcount == 1
+
+
+def resolve(*, row_id: int, verdict: str, at: datetime, approved_by: str,
+            window: timedelta, resolutions, approvals: ApprovalStore, key: str, body: str,
+            tool: str, recipient_domain: str, token_id: str | None = None,
+            ) -> ApprovalToken | None:
+    """The mint IS the resolution event. The resolution is the test-and-set; its loser mints
+    nothing, so a double resolution yields exactly one token. A rejecting verdict resolves the
+    row and mints nothing. The caller supplies the binding material and the clock."""
+    if not resolutions.record(row_id, at, approved_by):
+        return None
+    if verdict != "approve":
+        return None
+    token = ApprovalToken(token=token_id or secrets.token_hex(16), idempotency_key=key,
+                          body_digest=body_digest_of(body), tool=tool,
+                          recipient_domain=recipient_domain, resolution_id=row_id,
+                          minted_at=at, expires_at=at + window)
+    if not approvals.put_token(token):
+        # A colliding token id under a caller-supplied id; CSPRNG ids do not collide in practice.
+        return None
+    return token
