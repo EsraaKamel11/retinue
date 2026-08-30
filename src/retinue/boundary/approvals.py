@@ -66,14 +66,27 @@ class MemoryApprovalStore:
 
 
 #: Hoisted for the reason INSERT_REVIEW_ROW is hoisted in review_queue.py: the tests that need a
-#: database read the exact text the adapter issues.
+#: database read the exact text the adapter issues. A KEYLESS double-entry gate in
+#: tests/boundary/test_approvals.py holds all three against schema.sql, because every one of these
+#: statements is executable only in the DSN lane.
+#:
+#: The conflict target is SPELLED, the way PostgresStore.append spells it, rather than left bare.
+#: A bare `ON CONFLICT DO NOTHING` fires on whatever unique constraint the table happens to carry,
+#: so a UNIQUE added later on `idempotency_key` would make put_token answer False for a DIFFERENT
+#: token colliding on that key while MemoryApprovalStore answered True. Two halves whose whole
+#: purpose is identical semantics would split, in the lane the default suite never runs. Naming
+#: the target closes that off before it can open.
+#:
+#: SELECT_TOKEN's column ORDER is load-bearing rather than incidental: get_token splats the row
+#: positionally into ApprovalToken, so this order IS the dataclass's field order, and the gate
+#: asserts them equal as sequences.
 INSERT_TOKEN = ("INSERT INTO approvals (token, idempotency_key, body_digest, tool, "
                 "recipient_domain, resolution_id, minted_at, expires_at) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING")
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (token) DO NOTHING")
 SELECT_TOKEN = ("SELECT token, idempotency_key, body_digest, tool, recipient_domain, "
                 "resolution_id, minted_at, expires_at FROM approvals WHERE token = %s")
 INSERT_CONSUMPTION = ("INSERT INTO approval_consumptions (token, consumed_at) "
-                      "VALUES (%s,%s) ON CONFLICT DO NOTHING")
+                      "VALUES (%s,%s) ON CONFLICT (token) DO NOTHING")
 
 
 class PgApprovalStore:
