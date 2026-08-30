@@ -1,6 +1,7 @@
 """The approval store contract, both halves. The Postgres tests skip without a DSN and FAIL
 under RETINUE_PG_REQUIRED=1, the same posture test_review_queue.py:136-140 establishes."""
 import dataclasses
+import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -57,14 +58,36 @@ def test_consume_of_a_never_minted_token_still_wins_only_once():
 
 
 def test_an_approving_resolution_writes_once_and_mints_a_bound_token():
+    """EVERY field against the ARGUMENT it came from, never against the token itself.
+
+    The review's I1, and the reason it was the top finding: this test used to assert three fields
+    and then `appr.get_token("d" * 32) == t`, which compares the stored row to the same object the
+    call returned. That line says the store holds the token and says nothing whatever about what
+    the token is bound to, so `idempotency_key=""`, `tool` and `recipient_domain` swapped, and
+    `minted_at` corrupted all survived the whole suite at 279 green.
+
+    `tool` and `recipient_domain` are exactly the pair the spec's 2026-08-30 amendment added to
+    close an authorization hole, and this is the site where their binding is DECIDED. The
+    identical hazard was already named one layer down, in the docstring of
+    `test_the_select_reads_the_field_order_the_adapter_splats_the_row_into`; the mint reproduced
+    it and shipped no test. Each line below spells its expected value independently, from the
+    call's own arguments, so a swap has nothing to hide behind.
+    """
     res, appr = MemoryResolutionLog(), MemoryApprovalStore()
     t = resolve(row_id=7, verdict="approve", at=T0, approved_by="reviewer-1",
                 window=timedelta(hours=24), resolutions=res, approvals=appr,
                 key="k-7", body="hello", tool="mcp__retinue__send_message",
                 recipient_domain="example.test", token_id="d" * 32)
-    assert t is not None and t.resolution_id == 7
+    assert t is not None
+    assert t.token == "d" * 32
+    assert t.idempotency_key == "k-7"
     assert t.body_digest == body_digest_of("hello")
+    assert t.tool == "mcp__retinue__send_message"
+    assert t.recipient_domain == "example.test"
+    assert t.resolution_id == 7
+    assert t.minted_at == T0
     assert t.expires_at == T0 + timedelta(hours=24)
+    # Now that the object above is pinned field by field, this one says the store holds THAT row.
     assert appr.get_token("d" * 32) == t
 
 
@@ -120,6 +143,50 @@ def test_an_unnamed_token_is_minted_with_a_32_hex_id_and_two_mints_differ():
               for row in (11, 12)]
     assert all(re.fullmatch(r"[0-9a-f]{32}", t.token) for t in minted)
     assert minted[0].token != minted[1].token
+
+
+def test_a_mixed_second_verdict_settles_nothing_the_first_resolution_already_settled():
+    """Both mixed orders, which the brief's checklist names and no test covered.
+
+    They hold because the `record` gate is verdict-independent and sits ABOVE the verdict check,
+    so approve-then-reject and reject-then-approve walk one line: the second reviewer resolves
+    nothing and mints nothing, and a late approval cannot mint over a rejected row. Hoist the
+    verdict check above `record` and the second half of this test goes red.
+    """
+    res, appr = MemoryResolutionLog(), MemoryApprovalStore()
+    common = dict(at=T0, approved_by="reviewer-1", window=timedelta(hours=24), resolutions=res,
+                  approvals=appr, key="k", body="hello", tool="t", recipient_domain="d")
+    first = resolve(row_id=7, verdict="approve", token_id="3" * 32, **common)
+    assert resolve(row_id=7, verdict="reject", **common) is None
+    assert appr.get_token("3" * 32) == first        # the late rejection did not unmint anything
+
+    assert resolve(row_id=8, verdict="reject", **common) is None
+    assert resolve(row_id=8, verdict="approve", token_id="4" * 32, **common) is None
+    assert appr.get_token("4" * 32) is None         # the late approval minted nothing
+
+
+def test_a_colliding_caller_supplied_token_id_refuses_before_it_spends_the_row():
+    """The review's I3, ruled: that state may not be reached silently.
+
+    The collision used to be discovered AFTER the resolution was recorded, so `resolve` answered
+    None over a row left resolved, tokenless and unresolvable for good - the state spec section 2
+    writes its atomicity sentence to prevent, reached with no crash and no race, and
+    indistinguishable to the caller from losing one. Generate-and-retry is not the answer, since a
+    caller-supplied id is the caller's own evidence. So the collision is refused BEFORE the
+    resolution write: it raises, the row survives, and a correct retry still resolves it.
+    """
+    res, appr = MemoryResolutionLog(), MemoryApprovalStore()
+    common = dict(verdict="approve", at=T0, approved_by="reviewer-1", window=timedelta(hours=24),
+                  resolutions=res, approvals=appr, key="k", body="hello", tool="t",
+                  recipient_domain="d")
+    taken = resolve(row_id=7, token_id="5" * 32, **common)
+    assert taken is not None
+    with pytest.raises(ValueError):
+        resolve(row_id=8, token_id="5" * 32, **common)
+    assert appr.get_token("5" * 32) == taken        # row 7's token is untouched by the refusal
+    # The row survived, which is the whole finding: a correct retry still resolves row 8.
+    again = resolve(row_id=8, token_id="6" * 32, **common)
+    assert again is not None and again.resolution_id == 8
 
 
 # --- Double entry between the three SQL constants and schema.sql, read KEYLESSLY. ------------
@@ -209,12 +276,15 @@ def select_findings(sql: str, schema_text: str, fields: tuple[str, ...]) -> list
     columns = [c.strip() for c in cols_text.split(",")]
     findings: list[str] = []
     if tuple(columns) != tuple(fields):
-        findings.append(f"select_order: the SELECT reads {columns} and ApprovalToken(*row) "
-                        f"binds them to {list(fields)}")
+        findings.append(f"select_order: the SELECT reads {columns} and the caller binds them "
+                        f"positionally to {list(fields)}")
     block = _table_block(schema_text, table)
     if block is None:
         return findings + [f"table_undeclared: schema.sql declares no table named {table!r}"]
-    undeclared = sorted(set(columns) - set(_declared(block)))
+    # `_declared_all`, defined below with the UPDATE leg, so a column arriving by ALTER is
+    # declared to THIS leg too. The review's M6: reading only the block would redden this gate on
+    # correct SQL the first time a hoisted SELECT names `approved_by`.
+    undeclared = sorted(set(columns) - set(_declared_all(schema_text, table)))
     if undeclared:
         findings.append(f"select_reads_undeclared: {undeclared} not declared by {table}")
     return findings
@@ -405,6 +475,22 @@ def test_the_gate_reads_the_column_that_arrives_by_alter_and_not_only_the_create
     assert any("update_sets_undeclared" in f for f in update_findings(RESOLVE_ROW, without))
 
 
+def test_the_select_leg_of_the_gate_reads_that_column_too():
+    """The review's M6: the UPDATE leg learned to read the ALTER and the SELECT leg did not.
+
+    Latent rather than present, because the only hoisted SELECT over `review_queue` reads
+    `handoff`, which is in the CREATE TABLE block. It becomes a false red the first time the
+    operator path wants `SELECT resolved_at, approved_by ...` to show who resolved a row, and a
+    gate that reddens on correct SQL is the shape that gets exempted. Driven both ways, like the
+    UPDATE leg above.
+    """
+    sql = "SELECT approved_by FROM review_queue WHERE id = %s"
+    assert select_findings(sql, _schema(), ("approved_by",)) == []
+    without = re.sub(r"ALTER TABLE review_queue[^;]*;", "", _schema())
+    assert any("select_reads_undeclared" in f
+               for f in select_findings(sql, without, ("approved_by",)))
+
+
 def test_the_gate_catches_a_resolution_pointed_at_a_table_the_schema_never_declares():
     from retinue.boundary.approvals import RESOLVE_ROW
     mutant = RESOLVE_ROW.replace("review_queue", "no_such_table")
@@ -512,6 +598,103 @@ def test_an_approval_that_cannot_bind_refuses_before_it_ever_opens_a_connection(
     assert code == 2
     err = capsys.readouterr().err
     assert "--key" in err and "--tool" in err
+
+
+# --- Everything the CLI does AFTER the read, driven keylessly through the seam. ----------------
+#
+# The review's I2: the second refusal ran before `resolve` by inspection and by nothing else, and
+# a mutant moving it BELOW the resolution - the row-destroying order the whole D1 argument is
+# against - survived the entire suite at 279 green. Everything under `psycopg.connect` was
+# undriven: that refusal, the missing-row exit, the text-column parse branch, and both post-resolve
+# exit codes.
+#
+# So the decision is a function of the ROW rather than of a connection, and `main` is the thin
+# wiring that fetches the row and hands it over. No connection double is installed and no database
+# is reached; the seam is the row value and the resolve callable.
+#
+# The injected callable is the REAL `resolve` over the REAL memory halves, which is what lets every
+# assertion below be an effect on actual state rather than a count of calls. "The refusal ran
+# before the resolution" is asserted as `res.record(row, ...) is True` afterwards: the row is still
+# resolvable, which is only true if nothing resolved it.
+
+
+def _seam(res, appr, minted: list):
+    """The CLI's resolve seam, wired to the memory stores. Returns what `resolve` returns."""
+    def resolve_fn(**kwargs):
+        token = resolve(resolutions=res, approvals=appr, **kwargs)
+        minted.append(token)
+        return token
+    return resolve_fn
+
+
+def _call(row, res, appr, minted, **overrides):
+    from retinue.boundary.resolve import outcome_after_read
+    call = dict(row_id=7, approve=True, by="reviewer-1", at=T0, window=timedelta(hours=24),
+                key="k-7", tool="mcp__retinue__send_message", resolve_fn=_seam(res, appr, minted))
+    call.update(overrides)
+    return outcome_after_read(row, **call)
+
+
+def test_a_review_row_that_is_not_there_exits_two_and_resolves_nothing():
+    res, appr, minted = MemoryResolutionLog(), MemoryApprovalStore(), []
+    code, message = _call(None, res, appr, minted)
+    assert code == 2 and "no review row 7" in message
+    assert res.record(7, T0, "reviewer-2") is True    # nothing was resolved on the way out
+    assert minted == []
+
+
+def test_an_approval_whose_row_cannot_bind_refuses_before_the_resolution_ever_runs():
+    """The mutant the review planted: move this refusal below the resolve call and the row is
+    spent for good on a token bound to nothing. The row staying resolvable is that mutant's red."""
+    res, appr, minted = MemoryResolutionLog(), MemoryApprovalStore(), []
+    code, message = _call(({"recipient_domain": "example.test"},), res, appr, minted)
+    assert code == 2 and "blocked_body" in message
+    # The row is still resolvable, which is only true if nothing resolved it. That state is the
+    # property; the empty mint list below is corroboration, not the assertion doing the work.
+    assert res.record(7, T0, "reviewer-2") is True
+    assert minted == []
+
+
+def test_a_handoff_stored_as_text_binds_exactly_as_one_stored_as_jsonb():
+    """psycopg hands back a dict for JSONB and a string for a text column, and the CLI's parse
+    branch is the difference. Both paths are driven, and both must bind the same body."""
+    res, appr, minted = MemoryResolutionLog(), MemoryApprovalStore(), []
+    dump = _handoff_dump()
+    for row_id, row in ((1, (dump,)), (2, (json.dumps(dump),))):
+        code, _ = _call(row, res, appr, minted, row_id=row_id)
+        assert code == 0
+    assert [t.body_digest for t in minted] == [body_digest_of("The round is $9M.")] * 2
+    assert [t.recipient_domain for t in minted] == ["example.test"] * 2
+
+
+def test_an_approving_row_resolves_mints_and_hands_the_operator_the_token():
+    res, appr, minted = MemoryResolutionLog(), MemoryApprovalStore(), []
+    code, message = _call((_handoff_dump(),), res, appr, minted)
+    assert code == 0
+    t = minted[0]
+    assert t is not None and t.token in message and "reviewer-1" in message
+    assert appr.get_token(t.token) == t
+    assert (t.idempotency_key, t.tool) == ("k-7", "mcp__retinue__send_message")
+    assert t.body_digest == body_digest_of("The round is $9M.")
+    assert t.recipient_domain == "example.test"
+    assert res.record(7, T0, "reviewer-2") is False   # and the row is now resolved
+
+
+def test_a_rejection_needs_no_binding_flags_resolves_the_row_and_mints_nothing():
+    res, appr, minted = MemoryResolutionLog(), MemoryApprovalStore(), []
+    code, message = _call((_handoff_dump(),), res, appr, minted, row_id=9, approve=False,
+                          key=None, tool=None)
+    assert code == 0 and "no token minted" in message
+    assert minted == [None]
+    assert res.record(9, T0, "reviewer-2") is False   # the rejection did resolve the row
+
+
+def test_an_approval_of_a_row_someone_else_resolved_first_exits_one():
+    res, appr, minted = MemoryResolutionLog(), MemoryApprovalStore(), []
+    assert res.record(7, T0, "reviewer-2") is True    # somebody got there first
+    code, message = _call((_handoff_dump(),), res, appr, minted)
+    assert code == 1 and "no token minted" in message
+    assert minted == [None]
 
 
 def _pg_store():

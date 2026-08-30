@@ -160,7 +160,18 @@ def resolve(*, row_id: int, verdict: str, at: datetime, approved_by: str,
             ) -> ApprovalToken | None:
     """The mint IS the resolution event. The resolution is the test-and-set; its loser mints
     nothing, so a double resolution yields exactly one token. A rejecting verdict resolves the
-    row and mints nothing. The caller supplies the binding material and the clock."""
+    row and mints nothing. The caller supplies the binding material and the clock.
+
+    A caller-supplied token id that is already minted RAISES, and raises BEFORE the resolution is
+    written. Discovering the collision afterwards left the row resolved, tokenless and
+    unresolvable for good, while answering the same None a race loser gets - reached with no crash
+    and no concurrency. Generate-and-retry is not the repair: a supplied id is the caller's own
+    evidence, and quietly substituting another hands back a token the caller cannot recognise. So
+    the collision costs the row nothing and a corrected call still resolves it.
+    """
+    if token_id is not None and approvals.get_token(token_id) is not None:
+        raise ValueError(f"token id {token_id!r} is already minted, so nothing was resolved: "
+                         f"review row {row_id} is untouched and can still be resolved")
     if not resolutions.record(row_id, at, approved_by):
         return None
     if verdict != "approve":
@@ -170,6 +181,9 @@ def resolve(*, row_id: int, verdict: str, at: datetime, approved_by: str,
                           recipient_domain=recipient_domain, resolution_id=row_id,
                           minted_at=at, expires_at=at + window)
     if not approvals.put_token(token):
-        # A colliding token id under a caller-supplied id; CSPRNG ids do not collide in practice.
+        # Reachable now only by a genuine race - another caller minting this id between the check
+        # above and this insert - which a single-threaded caller cannot reach and CSPRNG ids do
+        # not reach in practice. It still leaves the resolved row tokenless, which no check here
+        # can close and one transaction can: the plan's Task 4 step 5, for the DSN lane.
         return None
     return token

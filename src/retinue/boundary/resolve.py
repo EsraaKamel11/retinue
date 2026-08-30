@@ -17,7 +17,10 @@ first-writer-wins, so an approve that resolved the row and only then discovered 
 would leave a row nobody can ever resolve again and a token nobody can ever spend, recoverable
 only by a fresh draft. Both binding checks therefore run before `resolve` is called, and the
 first of them runs before the connection is opened. A rejection binds nothing and is held to
-neither: an operator rejecting a draft should not need the act's idempotency key.
+neither: an operator rejecting a draft should not need the act's idempotency key. That order is
+now held by tests rather than by this paragraph: everything after the read lives in
+`outcome_after_read`, a function of the row and a resolve callable, which the keyless lane drives
+end to end.
 
 **Two connections today, not one transaction, said plainly rather than claimed away.** Spec
 section 2 asks the mint to be atomic with the resolution, one transaction in Postgres.
@@ -61,6 +64,40 @@ def binding_material(handoff: dict, *, key: str | None, tool: str | None,
     return binding, missing
 
 
+def outcome_after_read(row, *, row_id: int, approve: bool, by: str, at: datetime,
+                       window: timedelta, key: str | None, tool: str | None,
+                       resolve_fn) -> tuple[int, str]:
+    """Everything the CLI decides once the row is in hand: an exit code and the line to print.
+
+    A function of the ROW rather than of a connection, so the keyless lane drives all of it - the
+    missing row, the parse of a text-typed column, the refusal that must precede the resolution,
+    and both post-resolve exit codes. `main` keeps the fetch and nothing else. It is a function
+    because the ordering below was held by inspection alone: a mutant moving the refusal BELOW
+    `resolve_fn`, which is the row-destroying order this module exists to prevent, passed the
+    entire suite.
+
+    `resolve_fn` is `approvals.resolve` with its two stores already bound. Exit 2 is the refusal
+    family, which is how the caller knows to print to stderr; exit 1 is an approval that minted
+    nothing, which for an approving operator is a failure to get what they asked for.
+    """
+    if row is None:
+        return 2, f"no review row {row_id}"
+    # psycopg answers a dict for a JSONB column and a string for a text one. Both are rows this
+    # command can be pointed at, so both parse here rather than in whichever lane finds out.
+    handoff = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+    binding, missing = binding_material(handoff, key=key, tool=tool)
+    if approve and missing:
+        return 2, (f"review row {row_id} supplies no {', '.join(missing)}, so approving it could "
+                   "mint only a token bound to nothing; the row is left unresolved")
+    token = resolve_fn(row_id=row_id, verdict="approve" if approve else "reject", at=at,
+                       approved_by=by, window=window, key=binding["key"], body=binding["body"],
+                       tool=binding["tool"], recipient_domain=binding["recipient_domain"])
+    if token is None:
+        return (1 if approve else 0,
+                "resolved: no token minted (rejection, or the row was already resolved)")
+    return 0, f"resolved by {by}; token {token.token} expires {token.expires_at.isoformat()}"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m retinue.boundary.resolve")
     ap.add_argument("row_id", type=int)
@@ -83,31 +120,23 @@ def main(argv: list[str] | None = None) -> int:
               "neither the act's idempotency key nor the tool name", file=sys.stderr)
         return 2
 
+    # The connection seam, and all of it: one read, handed to the function above. Everything the
+    # command decides is decided there, where no database is needed to drive it.
     import psycopg
     with psycopg.connect(args.dsn) as conn, conn.cursor() as cur:
         cur.execute(SELECT_HANDOFF, (args.row_id,))
         row = cur.fetchone()
-    if row is None:
-        print(f"no review row {args.row_id}", file=sys.stderr)
-        return 2
-    handoff = row[0] if isinstance(row[0], dict) else json.loads(row[0])
-    binding, missing = binding_material(handoff, key=args.key, tool=args.tool)
-    if args.approve and missing:
-        print(f"review row {args.row_id} supplies no {', '.join(missing)}, so approving it could "
-              "mint only a token bound to nothing; the row is left unresolved", file=sys.stderr)
-        return 2
 
-    token = resolve(row_id=args.row_id, verdict="approve" if args.approve else "reject",
-                    at=datetime.fromisoformat(args.at), approved_by=args.by,
-                    window=timedelta(hours=args.window_hours),
-                    resolutions=PgResolutionLog(args.dsn), approvals=PgApprovalStore(args.dsn),
-                    key=binding["key"], body=binding["body"], tool=binding["tool"],
-                    recipient_domain=binding["recipient_domain"])
-    if token is None:
-        print("resolved: no token minted (rejection, or the row was already resolved)")
-        return 0 if args.reject else 1
-    print(f"resolved by {args.by}; token {token.token} expires {token.expires_at.isoformat()}")
-    return 0
+    def resolve_fn(**kwargs):
+        return resolve(resolutions=PgResolutionLog(args.dsn),
+                       approvals=PgApprovalStore(args.dsn), **kwargs)
+
+    code, message = outcome_after_read(row, row_id=args.row_id, approve=args.approve,
+                                       by=args.by, at=datetime.fromisoformat(args.at),
+                                       window=timedelta(hours=args.window_hours),
+                                       key=args.key, tool=args.tool, resolve_fn=resolve_fn)
+    print(message, file=sys.stderr if code == 2 else sys.stdout)
+    return code
 
 
 if __name__ == "__main__":
