@@ -10,12 +10,24 @@ The order inside attempt_send is load-bearing (spec 6):
    policy engine never runs on invented values, and the denial never masquerades as a policy
    judgment (spec 5.2). The class is deliberately NOT a policy ViolationClass: this repo adds no
    policy code.
-4. The imported `guarded_call` - engine + checker at the chokepoint; denials terminal via the
+4. The approval pre-check - a supplied token is verified HERE, against the bindings its mint
+   recorded, and spent here, before the imported gate ever sees it. It refuses with the
+   boundary-level class `approval_unverified` and never a policy ViolationClass, for step 3's
+   reason. AFTER step 3 because a missing context is the more fundamental absence and must keep
+   denying as `projection_unavailable`, never masked by a token refusal; BEFORE step 5 because the
+   boundary owns binding, expiry and consumption, which leaves the imported presence check holding
+   exactly what it has always held - that a token is present - with nothing upstream weakening it.
+   Consumption sits here rather than after the gate decides, so a gate denial SPENDS the token: a
+   human approved one attempt at one body, and an act the gate refused earns a fresh resolution
+   rather than a free retry riding an old approval (spec 4). A token with no store to check it
+   against refuses too, because presence alone is not verification and a caller who forgot to wire
+   the store is exactly the caller for whom a non-None string would stand in for a human.
+5. The imported `guarded_call` - engine + checker at the chokepoint; denials terminal via the
    imported Handoff; no resume round-trip.
-5. The sent touchpoint, tri-state - an unconfirmable send is UNVERIFIABLE and escalates; never
+6. The sent touchpoint, tri-state - an unconfirmable send is UNVERIFIABLE and escalates; never
    guessed CONFIRMED. The payload carries byte counts, not text: message bodies live in the
    review queue's Handoff, never in the ledger.
-6. The record-keeping check, on the same call that made the act. `store.append` is declared
+7. The record-keeping check, on the same call that made the act. `store.append` is declared
    `-> bool` and the store contract already pins False as "dropped" for both implementations, so
    this reads an answer the ledger was already giving.
 
@@ -94,7 +106,7 @@ here would be a policy decision taken at the wrong layer over a count nothing re
 home, on the day anything in this tree counts intents off the log, is `build_act_context`, beside
 the count itself, where a torn log and a short count arrive together.
 
-The step 6 check above is the LEDGER's instance of the same hazard, and it is this chokepoint's
+The step 7 check above is the LEDGER's instance of the same hazard, and it is this chokepoint's
 because this chokepoint is what creates it. An earlier revision of this file deferred it as a
 store-contract change; that was wrong twice over. The store had already contracted the answer and
 already tested it, and the chokepoint is the only place the answer can be read.
@@ -108,6 +120,7 @@ from chaperone.gates.handoff import Handoff
 from chaperone.gates.hook import guarded_call
 from chaperone.policy.act_classes import ActContext
 from chaperone.policy.types import Draft, Record
+from retinue.boundary.approvals import ApprovalStore, validate_and_consume
 from retinue.boundary.hook import SEND_TOOL
 from retinue.ledger.models import Touchpoint
 from retinue.ledger.store import TouchpointStore
@@ -117,6 +130,10 @@ DELIVERY_UNVERIFIABLE = "boundary:delivery_unverifiable"
 #: The act happened and the ledger has no record of it. Boundary-level like the two above and for
 #: the same reason: no policy predicate ran and none failed, so this may not wear a ViolationClass.
 SEND_UNRECORDED = "boundary:send_unrecorded"
+#: An approval token was supplied and the boundary could not verify it - unminted, mis-bound,
+#: expired, or already spent. A sibling of the three above and boundary-level for their reason: the
+#: token never reached the imported gate, so no policy predicate ran and none failed.
+APPROVAL_UNVERIFIED = "boundary:approval_unverified"
 REVIEW_QUEUE = "human-review"   # the imported destination_for's one queue name (gates/engine.py);
                                 # spelled here because engine sits outside the 6.1 import surface.
                                 # Double entry:
@@ -154,7 +171,8 @@ def _boundary_handoff(draft: Draft, category: str, outage: str | None) -> Handof
 
 def attempt_send(*, key: str, draft: Draft, record: Record, context: ActContext | None,
                  checker, gateway: Gateway, registry: Mapping[str, object], queues,
-                 store: TouchpointStore, investor_id: str, mandate_id: str | None,
+                 store: TouchpointStore, approvals: ApprovalStore | None = None,
+                 investor_id: str, mandate_id: str | None,
                  occurred_at: datetime, recorded_at: datetime,
                  confirm: Callable[[object], bool | None],
                  ) -> GatewayResult | UnrecordedSend | None:
@@ -169,6 +187,19 @@ def attempt_send(*, key: str, draft: Draft, record: Record, context: ActContext 
             "the relationship projection could not be read; no context was fabricated and the "
             "policy engine never ran"))
         return None
+    # Step 4. The docstring's order list carries the position argument; the burn is the half worth
+    # repeating at the call site, because it is invisible from here: a reason of None means the
+    # token has ALREADY been spent by the line above, and everything below runs on a spent token.
+    if context.approval_token is not None:
+        if approvals is None:
+            reason = ("an approval token was supplied but no approval store was provided; "
+                      "presence alone is not verification")
+        else:
+            reason = validate_and_consume(token=context.approval_token, key=key, draft=draft,
+                                          at=occurred_at, store=approvals)
+        if reason is not None:
+            queues.put(REVIEW_QUEUE, _boundary_handoff(draft, APPROVAL_UNVERIFIED, reason))
+            return None
     result = guarded_call(gateway, SEND_TOOL, {"body": draft.body}, draft, record,
                           context, checker, registry, queues=queues)
     if result.allowed:

@@ -59,7 +59,29 @@ class RaisingStore:
         raise StoreUnavailable("the ledger is unreachable")
 
 def ctx(**over):
-    base = dict(approval_token="tok-1", tier=2, consented_jurisdictions=frozenset({"US"}),
+    """The default act is tier 1 and TOKEN-LESS, and those two values moved together, once.
+
+    They were `approval_token="tok-1", tier=2` until the approval bridge's boundary pre-check
+    landed, and they were mutually neutralising: the fake token existed solely to get past the
+    imported tier-2 presence check, which is a presence check and asked nothing else of it. The
+    pre-check now verifies a supplied token against the bindings its mint recorded, so a string
+    nothing ever minted is refused AT THE BOUNDARY - which is the entire point of the bridge, and
+    which made fifteen tests in this file deny before reaching the subject each one is about.
+
+    Tier 1 with no token is the same act as tier 2 with a token the gate only ever counted as
+    present. `evaluate_act_classes` is the imported library's one reader of `ActContext.tier`
+    (`Gateway`'s own tier is a separate field on a separate object and is untouched here), and its
+    one use of it is that presence check, so both settings yield an empty finding list and the same
+    gate decision. Measured across the move, not reasoned about: every test below passes unchanged.
+
+    Every test FUNCTION in this file is byte-identical across that change, and each still pins what
+    it pinned. What the old pair covered and this one does not - a tier-2 act carrying a token -
+    moved to `tests/boundary/test_send_tool_approval.py`, where the token is real, minted, and bound
+    to the call. The tier-2 presence check itself was never exercised here at all, because this
+    fixture always satisfied it; it is driven there now, by
+    `test_no_token_at_all_behaves_exactly_as_today`.
+    """
+    base = dict(approval_token=None, tier=1, consented_jurisdictions=frozenset({"US"}),
                 granted_tools=frozenset({SEND_TOOL}), sent_count=0, send_cap=5)
     base.update(over)
     return ActContext(**base)

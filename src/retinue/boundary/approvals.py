@@ -187,3 +187,29 @@ def resolve(*, row_id: int, verdict: str, at: datetime, approved_by: str,
         # can close and one transaction can: the plan's Task 4 step 5, for the DSN lane.
         return None
     return token
+
+
+def validate_and_consume(*, token: str, key: str, draft: Draft, at: datetime,
+                         store: ApprovalStore) -> str | None:
+    """None on success. Otherwise a reason naming the failed leg, for the boundary handoff.
+
+    Reads run before the one write: a mis-bound attempt refuses WITHOUT spending the token,
+    so nobody can burn an approval they could not use. The consume append is last and its
+    boolean is the race decision; the gate-denial burn the spec argues lives downstream of
+    this function, which only ever spends a token it fully validated."""
+    t = store.get_token(token)
+    if t is None:
+        return f"no approval was ever minted under this token"
+    if t.idempotency_key != key:
+        return "the approval binds a different idempotency key"
+    if t.body_digest != body_digest_of(draft.body):
+        return "the approval binds a different body"
+    if t.tool != (draft.tool_name or ""):
+        return "the approval binds a different tool"
+    if t.recipient_domain != draft.recipient_domain:
+        return "the approval binds a different recipient domain"
+    if not at < t.expires_at:
+        return "the approval expired before the act"
+    if not store.consume(token, at):
+        return "the approval was already consumed"
+    return None
