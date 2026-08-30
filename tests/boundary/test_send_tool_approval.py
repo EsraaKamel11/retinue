@@ -194,6 +194,38 @@ def test_a_valid_token_reaches_the_gate_and_a_gate_denial_burns_it(tmp_path):
     assert spent is not None and "consum" in spent
 
 
+def test_a_valid_token_carries_a_tier_2_act_to_an_allowed_confirmed_recorded_send(tmp_path):
+    """The arm the whole bridge exists to ENABLE, and every other test at this level is a refusal.
+
+    Stated precisely, because the obvious phrasing is wrong. This is not coverage the `ctx()` move
+    displaced: the old fixture's tier-2 allow ran on `"tok-1"`, a string nothing minted, past a
+    check that only asked whether it was non-None, so a VERIFIED-token allow was never asserted
+    anywhere in this suite. The refusal paths moved into this file; this path had no predecessor.
+
+    What is unique here is not the refusal it would catch but the EFFECTS it asserts. Inverting the
+    pre-check's terminal condition, so a fully valid token is treated as unverified, reddens this
+    test at `assert out is not None and out.allowed` and reddens four siblings with it - measured,
+    and recorded that way rather than as a sole-catcher claim, which the same run refuted. What no
+    other test at this level reaches is what an APPROVED act leaves behind: every other integration
+    test in this file ends in a refusal, and the one other test that carries a valid token through
+    the pre-check drives a body the gate denies, so it asserts an empty ledger by design.
+
+    All of a bridged approval's effects, in one act: the gate allowed it, the tool ran, the ledger
+    holds exactly one CONFIRMED `sent` row, nothing was escalated, and the approval is spent.
+    """
+    kw, rows, store = approved(tmp_path, key="a8", body=CLEAN)
+    out = attempt_send(key="a8", draft=send_draft(body=CLEAN), record=Record(fields={}),
+                       context=ctx(approval_token="a" * 32, tier=2), confirm=lambda v: True, **kw)
+    assert out is not None and out.allowed
+    touchpoints = kw["store"].touchpoints_for("inv-1")
+    assert [t.kind for t in touchpoints] == ["sent"]
+    assert touchpoints[0].delivery_status == "CONFIRMED"
+    assert rows == []                                      # an approved clean send escalates nothing
+    spent = validate_and_consume(token="a" * 32, key="a8", draft=send_draft(body=CLEAN),
+                                 at=T0, store=store)
+    assert spent is not None and "consum" in spent         # and the approval was spent, exactly once
+
+
 def test_the_new_boundary_class_is_no_policy_class_at_all(tmp_path):
     """Read off what LANDED, never off the constant, because that is how this defect recurs here.
 
