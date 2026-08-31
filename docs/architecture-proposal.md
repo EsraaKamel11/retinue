@@ -156,17 +156,22 @@ and a torn-down call is not a call waiting on a human (`hook.py:81-88`).
 ## 4. The chokepoint, completed
 
 `attempt_send` exists to make the library's chokepoint contract survive composition, and its
-internal order is load-bearing (`send_tool.py:1-21`):
+internal order is load-bearing (the numbered order list in `send_tool.py`'s module docstring). The
+seven steps below cite that file by NAME rather than by line, the convention step 4 set when it was
+added: this branch's insertions moved every line in the module, which is how the line citations
+these replaced went stale, and a function or constant name survives the next insertion.
 
 1. **The terminal guard runs before input validation.** Validation-first returns a readable error
    the model can correct and resubmit - a real second act. The ledger's idempotency key catches
-   the duplicate row; this ordering catches the duplicate act (`send_tool.py:161-163`).
-2. Input validation (`send_tool.py:164-165`).
+   the duplicate row; this ordering catches the duplicate act (the `TerminalSend` raise, first
+   statement in `attempt_send`).
+2. Input validation (the `InvalidSend` raise, immediately after it).
 3. **A `None` context denies before the engine runs.** The boundary-level class
    `boundary:projection_unavailable` is deliberately not a policy `ViolationClass` - this
    repository adds no policy code - and the denial never masquerades as a policy judgment: a
    sentinel context pushed through the engine would have reported a token failure, which is a lie
-   about what happened (`send_tool.py:115,166-171`).
+   about what happened (the `PROJECTION_UNAVAILABLE` constant and `attempt_send`'s `context is
+   None` branch, which queues through `_boundary_handoff` and returns `None`).
 4. **A supplied approval is verified and spent before the engine sees it** (added 2026-08-31 with
    section 15.1's build; this list carried six steps until then, and the module's own docstring
    carries the same order). The boundary calls `validate_and_consume`, which checks the token's
@@ -179,18 +184,20 @@ internal order is load-bearing (`send_tool.py:1-21`):
    upstream weakening it. The burn is argued as a feature: a token spent on an act the gate then
    denies earns a fresh resolution, never a free retry riding an old approval.
 5. The imported `guarded_call`, engine and detector lane at the chokepoint, denials terminal via
-   the imported `Handoff`, no resume round trip (`send_tool.py:172-173`).
+   the imported `Handoff`, no resume round trip (the `guarded_call` call in `attempt_send`).
 6. **The sent touchpoint is tri-state.** `confirm` is a transport round trip; one that raises is
    the definition of an unconfirmable send, so the status is bound to `UNVERIFIABLE` before the
-   guarded region and only upgraded by an answer (`send_tool.py:179-198`). An unconfirmable send
-   escalates and is never guessed `CONFIRMED`. The payload carries byte counts, never text -
-   message bodies live in the review queue's `Handoff`, not in the ledger.
+   guarded region and only upgraded by an answer (the `status` binding under `if result.allowed`,
+   read back by the `DELIVERY_UNVERIFIABLE` escalation). An unconfirmable send escalates and is
+   never guessed `CONFIRMED`. The payload carries byte counts, never text - message bodies live in
+   the review queue's `Handoff`, not in the ledger.
 7. **The recording check reads the store's own boolean on the same call that made the act.** A
    dropped row - cross-kind key collision, cross-investor key collision, or a store that raised -
    comes back as `UnrecordedSend`, a distinct frozen type with deliberately no `allowed`
    attribute: `True` is the state being distinguished from, `False` would invite a re-send, and a
    raise after an irreversible act arrives at a defensively-written executor relabelled transient,
-   which drives the retry that sends twice (`send_tool.py:132-145` and the module docstring).
+   which drives the retry that sends twice (the `UnrecordedSend` dataclass, the `SEND_UNRECORDED`
+   constant, and the module docstring).
 
 **Detection was chosen over prevention, and the refusal is argued against its strongest form.**
 The store's `append` is already an atomic key-global test-and-set, so claiming the key before the
