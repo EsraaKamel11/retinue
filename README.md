@@ -23,18 +23,21 @@ incidental, so the default lane needs no running service, live runs exist only t
 once, and no test contacts a model or a network. Clone it, `pip install -r requirements.txt`,
 `python -m pytest`: that is the whole default lane.
 
-**Status: P1 through P4 are built. Six rows in the table stay Designed.** P1 is the research
+**Status: P1 through P4 are built, and the approval bridge with them since 2026-08-31. Five rows in
+the table stay Designed.** P1 is the research
 spine; P2 the matching integration, the ranking evaluators, the frozen-verdict replay and the
 block-stripped control; P3 the drafting specialist, the chokepoint, the pre-flight review surface
 and the durable review queue; P4 the conversation specialist and the live demo. The
 Designed-vs-Built table at the bottom is the authority on which capability is which, and it is not
 a summary of this sentence: a status claim and a row that disagree is the defect the table exists
-to catch, and the row is what gets fixed. The six Designed rows say so there, by name, with the
-reason: four capabilities this design added (the approval bridge, the ladder tier,
-contested-quantity rendering, the weights-update sketch) and two notes inherited from the library
-(the sliding-window contact limit, store unification). An earlier version of this sentence counted
-four, written before the approval bridge and the ladder tier joined the table, which is the
-count-versus-row disagreement the previous sentence describes.
+to catch, and the row is what gets fixed. The five Designed rows say so there, by name, with the
+reason: three capabilities this design added (the ladder tier, contested-quantity rendering, the
+weights-update sketch) and two notes inherited from the library (the sliding-window contact limit,
+store unification). This sentence has now been corrected twice by the table it summarises. It
+counted four Designed rows before the approval bridge and the ladder tier joined them, then six
+until 2026-08-31, when the bridge flipped to Built on the evidence its own spec named. Each time
+the row moved first and the count followed, which is the count-versus-row disagreement the previous
+sentence describes.
 
 Every count in this file is from this machine, on 3.13, unless the sentence names CI's run instead.
 
@@ -71,9 +74,10 @@ two asymmetrically, and the asymmetry is the whole architecture:
 - **Acts are bounded structurally, so the bound can be stated as structure.** The research and
   drafting specialists, and the intake specialist beside them, are offered no outbound tool at all -
   not a refused tool, an absent one.
-  The conversation specialist's send is held for a human before the call. The one act path is built to run
-  the imported deterministic engine at a chokepoint inside the send-tool body - wired and tested,
-  with no agent caller yet, which
+  The conversation specialist's send is held for a human before the call. The one act path runs
+  the imported deterministic engine at a chokepoint inside the send-tool body, and since
+  2026-08-31 a human resolution reaches it: `scripts/bridge.py` mints an approval bound to one body
+  and drives a gated send through the whole path. No agent caller exists, which
   [What this repository does not claim](#what-this-repository-does-not-claim) states before
   anything else. Each of those is a property of code and captured payloads, not of model
   behaviour.
@@ -102,10 +106,12 @@ The invariants the system enforces, each with its enforcement site rather than a
    row makes the idempotency key a reusable send licence (`boundary/send_tool.py`).
 6. A composed send today cannot complete autonomously. The conversation lane's send is held for
    a human before the call, and the main thread's body-only shape is refused by the imported lane
-   on `act:no_approval_token`, because nothing mints an approval token - the Designed
-   approval-bridge row. That refusal is a measurement over that payload shape, never a property
-   of the lane: the suite's own token-carrying fixture is denied on `act:figure_not_in_record`
-   instead (`tests/boundary/test_hook.py`).
+   on `act:no_approval_token`. Until 2026-08-31 the reason was that nothing minted an approval
+   token anywhere; the bridge mints one now, and what holds is narrower with the same effect: a
+   token exists only as the trace of a human resolution, and no agent carries one, so a body-only
+   payload still arrives without it. That refusal is a measurement over that
+   payload shape, never a property of the lane: the suite's own token-carrying fixture is denied on
+   `act:figure_not_in_record` instead (`tests/boundary/test_hook.py`).
 7. No test contacts a model or a network. Live runs are capture runs: recorded once, stamped,
    frozen under `fixtures/`, replayed forever.
 
@@ -138,6 +144,7 @@ that owns it.
                                           |
                         boundary/send_tool.py::attempt_send      (the one act path)
                         terminal guard -> validation -> context pre-check
+                        -> approval pre-check (bound, unexpired, spent once)
                         -> imported guarded_call (engine + checker at the chokepoint)
                         -> tri-state delivery -> the ledger answers, or escalates
                                           |
@@ -157,10 +164,11 @@ Five layers, top to bottom: the session options are the spec layer, written as d
 orchestrator routes work to the four specialists; every tool call passes the one registered
 hook; the single act path runs the imported engine at its chokepoint; and what remains is state -
 the ledger, the durable review queue, the audit trail. One honesty note belongs on the diagram
-rather than under it: `attempt_send` has no caller outside its own module and its tests, which is
-stated in the [Designed vs Built](#designed-vs-built) table rather than left to be found. The
+rather than under it: `attempt_send` had no caller outside its own module and its tests until
+2026-08-31, when `scripts/bridge.py` became the first, and the
+[Designed vs Built](#designed-vs-built) table carries that rather than leaving it to be found. The
 demo's live session captured the gate holding a send BEFORE the chokepoint; the chokepoint itself
-is exercised by its test suite, not yet by an agent.
+is exercised by its test suite and by that one script, not yet by an agent.
 
 1. **The session is declared, not spawned.** `build_options` in
    `src/retinue/orchestration/topology.py` returns the SDK options: the four agent definitions,
@@ -183,10 +191,13 @@ is exercised by its test suite, not yet by an agent.
    in a fixed order: the terminal duplicate-key guard before input validation - validation-first
    would hand the model a readable error to correct and resubmit, a real second act - then
    validation, then the pre-check where a missing projection denies at boundary level with the
-   policy engine never reached, then the imported `guarded_call`, which is where the engine and
-   the checker run. The pre-check's class, `boundary:projection_unavailable`, is deliberately not
-   a policy `ViolationClass`: no policy predicate ran, so the denial may not masquerade as a
-   policy judgment.
+   policy engine never reached, then the approval pre-check, which since 2026-08-31 validates a
+   supplied token's bindings and spends it before the engine is reached, then the imported
+   `guarded_call`, which is where the engine and the checker run. Both pre-check classes,
+   `boundary:projection_unavailable` and `boundary:approval_unverified`, are deliberately not
+   policy `ViolationClass`es: no policy predicate ran, so the denial may not masquerade as a
+   policy judgment. A missing projection is the more fundamental absence and keeps its place first,
+   never masked by a token refusal.
 6. **The act is recorded on the same call that made it.** A `sent` touchpoint is appended
    tri-state, `CONFIRMED` / `FAILED` / `UNVERIFIABLE`, and `store.append`'s boolean is read: an
    act the ledger did not record returns `UnrecordedSend` and files an escalation rather than
@@ -203,8 +214,12 @@ is exercised by its test suite, not yet by an agent.
 
 The `ActContext` step 5 hands the engine is built by `build_act_context` in
 `src/retinue/ledger/projection.py`: tier, granted tools and the send cap arrive as parameters,
-`sent_count` is counted off the ledger's own `sent` touchpoints, and `approval_token` defaults to
-None, which is the approval bridge the table at the bottom carries as Designed only.
+`sent_count` is counted off the ledger's own `sent` touchpoints, and `approval_token` still
+defaults to None. That default was the approval bridge the table at the bottom carried as Designed
+only until 2026-08-31. A caller now has something to pass: `scripts/bridge.py` hands it the id of a
+token a human resolution minted, and the chokepoint validates that token's bindings and spends it
+before the engine reads the field. A defaulted None is an act nobody approved rather than an act
+nobody could approve.
 
 ## The roster
 
@@ -281,12 +296,12 @@ checker never weaker than the drafter - is enforced by the imported constructor 
 |---|---|
 | `src/retinue/orchestration/` | the topology as data: agent definitions, tiers, the session ceiling, `build_options` |
 | `src/retinue/specialists/` | the four prompts and their agents: research, drafting, conversation, intake, plus the research contract's failure types |
-| `src/retinue/boundary/` | the hook, the chokepoint, the checker lane, the pre-flight surface, the review queue |
+| `src/retinue/boundary/` | the hook, the chokepoint, the checker lane, the pre-flight surface, the review queue, the approval mint and its validator, and the operator's resolve CLI |
 | `src/retinue/ledger/` | touchpoint models and the write barrier, the store contract with its in-memory reference, the Postgres adapter, the projection, the rendered block, outcomes |
 | `src/retinue/matching/` | `integrate.py`, the one caller of the imported matching staging |
 | `src/retinue/evals/` | the ranking evaluators, the block-stripped control, the frozen-verdict replay |
 | `src/retinue/synth/` | the seeded synthetic roster generator |
-| `scripts/` | the three capture scripts, all live-lane and flag-gated |
+| `scripts/` | the three capture scripts, all live-lane and flag-gated, plus `bridge.py`, the approval bridge's caller, which is keyless and offline and gated by nothing |
 | `fixtures/` | payloads, drafts, verdicts, gold rankings, and the documents the research specialist reads |
 | `tests/` | one directory per package above, plus the fixture-provenance, audit and plan-sync tests at the top level |
 | `tools/` | `battery.sh` and `fleet_audit.py` |
@@ -351,22 +366,26 @@ it, and it is a named gap rather than a resolved one.
 
 ## The ledger
 
-`schema.sql` is idempotent and carries three tables. It is the whole migration story for P1: every
-statement reaches an existing database by adding what it finds missing, with one destructive
-exception it names.
+`schema.sql` is idempotent and carries five tables, three of them the ledger's own and two added by
+the approval bridge on 2026-08-30. It is the whole migration story: every statement reaches an
+existing database by adding what it finds missing, with one destructive exception it names.
 
 | Table | Holds | Mutability |
 |---|---|---|
 | `touchpoints` | every fact the fleet learns, one row per event, across five kinds: `contact`, `stated_check_size`, `pass_reason`, `identity`, `sent` - each carrying `occurred_at`, when it was true in the world, and `recorded_at`, when the system learned it | append-only, enforced by two triggers |
 | `outcomes` | resolved outcome signals: `replied`, `meeting_booked`, `check_written` | updatable, and the absent trigger is the decision |
-| `review_queue` | the durable half of escalation: queue name, the `Handoff` as JSONB, enqueued time | insert only today; `resolved_at` is declared and nothing writes it |
+| `review_queue` | the durable half of escalation: queue name, the `Handoff` as JSONB, enqueued time, and since 2026-08-30 `approved_by`, the reviewer's identity | insert plus one update, and that update is the whole of it: `resolved_at` was declared and unwritten until the approval bridge's resolution shipped on 2026-08-30 and first ran against Postgres on 2026-08-31. The write is a test-and-set on `resolved_at IS NULL`, so a double resolution is first-writer-wins by construction and the loser mints nothing. |
+| `approvals` | one row per minted token: the act's idempotency key, the body digest, the tool, the recipient domain, the resolution that minted it, and its window | append-only, enforced by the same trigger pair `touchpoints` carries |
+| `approval_consumptions` | one row per token spent, which is how single use survives a race: the insert that wins is the spend, and the primary key refuses the second | append-only, the same trigger pair again |
 
 Append-only lives in the database rather than in prose: a row-level trigger before UPDATE or
 DELETE, and a statement-level trigger before TRUNCATE, because a row-level trigger cannot fire on
 TRUNCATE and without the second one `TRUNCATE touchpoints` quietly empties an append-only ledger.
 `outcomes` carries no such trigger, because an outcome resolves over weeks and a later resolution
 updates its row: `occurred_at` and `observed_at` diverge structurally. The ledger stays immutable
-and the outcome stays correctable.
+and the outcome stays correctable. The bridge's two tables carry the same pair for the same reason;
+`review_queue` carries neither, because the resolution test-and-set is exactly the one update this
+design allows itself, and a trigger forbidding it would forbid the mint.
 
 There is no record write. `project_record` and `build_act_context` are pure projections over the
 touchpoint stream, and `None` from either means the store could not be READ, which is a different
@@ -512,7 +531,17 @@ python -m pytest
 ```
 
 Order matters and `requirements.txt` encodes it: the vendored wheel first, then this package as an
-editable install with its dev extra. Python >=3.11. For the Postgres lane locally:
+editable install with its dev extra. Python >=3.11.
+
+**Run the suite with the venv's own interpreter, not whatever `python` resolves to.** Every count in
+this file comes from `.venv/Scripts/python.exe` (`.venv/bin/python` on Linux and macOS), and the
+distinction is not pedantry: on a machine that also has the boundary library checked out as a
+sibling working tree, a `python` on PATH can import `chaperone` from that tree instead of from the
+vendored wheel, which is a different library from the one this repository pins. The battery takes
+the same interpreter as `PYTHON=.venv/Scripts/python.exe bash tools/battery.sh`. A count taken
+through the wrong interpreter is a count about a tree nobody ships.
+
+For the Postgres lane locally:
 
 ```bash
 docker compose up -d --wait
@@ -530,9 +559,9 @@ configuration surface, each compared where it is read:
 
 | Variable | Read by | Effect |
 |---|---|---|
-| `RETINUE_PG_DSN` | the test suite only (`tests/ledger/conftest.py`, `tests/ledger/test_postgres_enforcement.py`, `tests/boundary/test_review_queue.py`), which hands it to `bootstrap`, `PostgresStore` and the durable sink; nothing under `src/` reads the environment | Set: the Postgres lane runs against it. Unset: those tests skip with a printed reason that says how to start one. |
-| `RETINUE_PG_REQUIRED` | the same three test files, against the exact string `"1"` | Turns a skip into a failure - the negative control that keeps the lane from being vacuous in CI. |
-| `RETINUE_LIVE` | all three `scripts/`, against the exact string `"1"` | Gates the live capture lane. Unset, every script prints that it is manual and keyed, and exits. |
+| `RETINUE_PG_DSN` | the test suite only (`tests/ledger/conftest.py`, `tests/ledger/test_postgres_enforcement.py`, `tests/boundary/test_review_queue.py`, and since 2026-08-30 `tests/boundary/test_approvals.py`), which hands it to `bootstrap`, `PostgresStore`, the durable sink and the approval stores; nothing under `src/` reads the environment, and the resolve CLI takes its DSN as a required argument | Set: the Postgres lane runs against it. Unset: those tests skip with a printed reason that says how to start one. |
+| `RETINUE_PG_REQUIRED` | the same four test files, against the exact string `"1"` | Turns a skip into a failure - the negative control that keeps the lane from being vacuous in CI. |
+| `RETINUE_LIVE` | the three capture scripts under `scripts/`, against the exact string `"1"` | Gates the live capture lane. Unset, every capture script prints that it is manual and keyed, and exits. `scripts/bridge.py` reads no environment variable and is gated by nothing, because it needs no key, no service and no network. |
 | `ANTHROPIC_API_KEY` | `scripts/judge_capture.py` via pydantic-ai's provider | The judge capture takes this or nothing: the provider raises when it is unset, and the Anthropic SDK's further fallbacks are unreachable from that path (source-cited at pydantic-ai 2.23.0). |
 
 The one piece of runtime configuration that is code rather than environment is
@@ -546,27 +575,31 @@ Every entrypoint, with what it actually does:
 
 | Command | What happens |
 |---|---|
-| `python -m pytest` | The default lane: 241 passed, 9 skipped at this commit, on a fresh clone, offline. The 9 are the Postgres lane waiting on a DSN. |
+| `python -m pytest` | The default lane: 309 passed, 18 skipped at this commit, on a fresh clone, offline. The 18 are the Postgres lane waiting on a DSN. |
 | `bash tools/battery.sh` | The doc-and-hygiene gates, then the audit, then the suite with a floor on the PASS count. Every gate proves it can still fire before its zero is believed. |
 | `python tools/fleet_audit.py` | The AST import audit alone: exits 0 silent, or prints findings and exits 1. |
 | `docker compose up -d --wait` | Local Postgres 16.4 for the lane below. |
 | `RETINUE_LIVE=1 python scripts/judge_capture.py` | Re-judges the fixture drafts live and OVERWRITES the frozen canon - a deliberate act, not a refresh. |
 | `RETINUE_LIVE=1 python scripts/demo.py` | The P4 live demo; has run once, and its capture is frozen. Exit 0: ask captured. Exit 1: the send tool was never offered, nothing was demonstrated, nothing written. Exit 2: offered, but the conversation lane made no send. |
 | `python scripts/capture_smoke.py` | Refuses every invocation, by design - see [the three lanes](#the-three-lanes). |
+| `python scripts/bridge.py --approve-as NAME` | The approval bridge end to end, offline and keyless: the captured ask payload, a human resolution, the mint, the boundary's validate-and-consume, the gate, the ledger row. `--reject-as NAME` takes the other arm; with neither flag the held draft prints and the operator answers y/n. It is `attempt_send`'s first caller that is not a test, and its transport is inert by design, so `CONFIRMED` means a local handle came back and never that a message reached a person. |
+| `python -m retinue.boundary.resolve <row> --approve --by NAME --at ISO --key KEY --tool TOOL --dsn DSN` | The operator's resolution against a real `review_queue` row: writes `resolved_at` once and prints the token it minted. `--reject` needs no binding flags and mints nothing. Exit 1 is a row someone else resolved first. Exit 2 is a refusal that costs the row nothing: an approval missing `--key` or `--tool`, refused before any connection is opened, or a review row that is not there. |
 
 ## The three lanes
 
 ### Default lane
 
 `python -m pytest`. No daemon, no network, no key, on a fresh clone. At this
-commit: 241 passed, 9 skipped, all 9 for the Postgres lane below. No second `-q`: `pyproject.toml`'s
+commit: 309 passed, 18 skipped, all 18 for the Postgres lane below. No second `-q`: `pyproject.toml`'s
 `addopts` already carries one, and `-qq` deletes the summary line that both CI and the battery
 read. The lane holds the options-shape tests, the hook callback replayed against captured payloads,
 the specialist tests under pydantic-ai's own offline doubles, the ledger contract tests against an
 in-memory reference store, the matching integration against the imported staging, the ranking
 evaluators over a hand-judged gold shortlist across the seeded synthetic roster, the frozen judge
 replay, the block-stripped control, the chokepoint's ordering and denial tests, the pre-flight
-two-signal routing, the review queue's in-memory half, and the audit's own planted-violation tests.
+two-signal routing, the review queue's in-memory half, the approval bridge's in-memory mint,
+binding and single-use tests together with `scripts/bridge.py`'s own end-to-end run, and the audit's
+own planted-violation tests.
 `.github/workflows/ci.yml` runs it on 3.11 and 3.13, then the battery. It first ran on
 2026-08-12, green on both versions, so the 3.11 half of that matrix stopped being a claim about a
 version no one had executed this suite on.
@@ -588,6 +621,21 @@ toy scale, not a broken index. The ordering claim now has its own test at its ow
 first run's plan is pinned in the docstring as the finding it was.
 `RETINUE_PG_REQUIRED=1` turns a skip into a failure, which is the negative control that keeps the
 lane from being vacuous.
+
+The approval bridge added its own DSN-keyed tests on 2026-08-30 and 2026-08-31: the two token
+tables' append-only triggers, the resolution and its mint surviving a reconnect as one durable fact,
+and a mint that cannot be written leaving the resolution unwritten too.
+
+**Two of its seams execute under a DSN and under nothing else, which is a property of the lane
+rather than of the tests.** `resolve_pg`, the one-transaction resolve-and-mint, and the operator
+CLI's own atomic seam are database transactions, so neither has an honest keyless arm: a keyless run
+skips them with the reason printed, and those skips are among the 18. What the keyless lane does
+cover is their SQL text, held against `schema.sql` by a double-entry gate, so a statement naming a
+table or a column the schema never declares is a red suite with no server anywhere. Has run and is
+green stay different claims here as everywhere: both seams first executed on 2026-08-31, on a
+throwaway local cluster at PostgreSQL 16.13 rather than the compose service, and that run reported
+327 passed and 0 skipped under `RETINUE_PG_REQUIRED=1`. It is one machine's run and not CI's, the
+compose lane at 16.4 stays unexercised on that machine, and a keyless CI run executes neither seam.
 
 > **This lane first executed on 2026-08-12, in CI, and went green on 2026-08-13.** There is no
 > Docker on the machine this was built on and an ephemeral cluster would not start there, so
@@ -841,11 +889,19 @@ Limits are properties of the system, so they get the same precision as the featu
 `docs/architecture-proposal.md` section 17 is the source of this list; where a bullet there and this
 file's run history disagree, the run history is newer and the bullet below carries what ran.
 
-- **No agent has ever driven the chokepoint.** `attempt_send` has no caller outside its own module
-  and tests, and the checker lane, the pre-flight surface and the review queue are reachable only
-  through it. The demo's live crossing stopped at the hook's ask, above the chokepoint,
-  deliberately. The composed fleet's strong lane is unreachable as designed until the approval
-  bridge exists, and the only path to a permitted send today is a caller inventing evidence.
+- **No agent has ever driven the chokepoint, and since 2026-08-31 a script has.** This bullet read
+  "`attempt_send` has no caller outside its own module and tests" until that date, and it closed on
+  a sentence the approval bridge retired: that the only path to a permitted send is a caller
+  inventing evidence. `scripts/bridge.py` now drives the captured ask payload through a human
+  resolution, the mint, the boundary's validate-and-consume and `guarded_call`, so a permitted send
+  rides a token bound to one body, one key, one tool and one destination, spent once. The headline
+  is what did not change: the caller is a script an operator runs, no agent has reached the tool
+  body, and the demo's live crossing still stops at the hook's ask, above the chokepoint,
+  deliberately. The checker lane and the pre-flight surface are still reachable only through
+  `attempt_send`, and every escalation still enters the review queue through it, so that one script
+  is the whole of their non-test traffic across the chokepoint. The queue's other door is the
+  bridge's own and is named rather than folded in: a human resolution reads a row and writes
+  `resolved_at` beside the chokepoint, which is the one update [the ledger](#the-ledger) dates.
 - **Numbers over hand-authored fixtures are protocol demonstrations**, one author's, and stay so.
   The one captured crossing is stated at its size above: two cases, one confident verdict, and the
   drafts' ground truth is still one author's labels, so even that figure is a judge read against one
@@ -877,7 +933,7 @@ Three documents sit in `docs/`, and they answer different questions.
 | Document | Answers | Authority |
 |---|---|---|
 | `docs/superpowers/specs/2026-08-10-retinue-design.md` | what the system is meant to be, per module, with the rejected alternatives and the evidence tiers | design intent: where this file and the spec disagree about intent, the spec wins |
-| `docs/architecture-proposal.md` | why the architecture is shaped this way, argued end to end for a reviewer, and the six Designed rows argued one by one | the argument, not the status; it cites the tree by file and line |
+| `docs/architecture-proposal.md` | why the architecture is shaped this way, argued end to end for a reviewer, with section 15 arguing the roadmap rows one by one - six of them when it was written, the first now Built and keeping its argument under a dated amendment rather than being deleted | the argument, not the status; it cites the tree by file and line |
 | `docs/superpowers/plans/2026-08-10-retinue-implementation.md` | how it was built, task by task, tests first | the build record; its Task 11 section embeds `tools/battery.sh` verbatim and `tests/test_plan_sync.py` holds the two byte-identical |
 
 Build status runs the other way. The spec's section 12 table is the seed this file's
@@ -917,39 +973,45 @@ On the opening paragraph's two claims about the default lane:
 
 ## Roadmap
 
-The six Designed rows are the roadmap, ordered by leverage. Each is a named absence with a shape,
+The five Designed rows are the roadmap, ordered by leverage. Each is a named absence with a shape,
 a row, a sketch or a parked test, rather than an idea. `docs/architecture-proposal.md` section 15 argues each one at
 length: what exists, what building it takes, what risk it retires, and what evidence would count.
 That last clause is the entry condition, so a row flips to Built on evidence and never on effort.
 
-1. **The approval bridge** (section 15.1). A mint, a transport, and a validation stronger than
-   presence, all boundary-side because none of it may be policy code. The natural mint is the
-   review surface already here: `review_queue.resolved_at` is declared and unwritten, so a human
-   resolution can mint a single-use token bound to the draft's idempotency key and body digest.
-   It retires the standing incentive for a caller to invent evidence, and it is the same event as
-   `attempt_send` gaining its first non-test caller. (2026-08-27: three downstream keyed captures
-   now end on `act:no_approval_token`, and two new specialists consume the same hold; the row's
-   priority is measured, not argued - proposal section 15.1's dated amendment carries the
-   evidence.)
-2. **Tier from the ladder** (section 15.2). `boundary/` imports `chaperone/gates/ladder.py`,
+**The approval bridge was the first entry on this list and is no longer an entry.** It read: "a
+mint, a transport, and a validation stronger than presence, all boundary-side because none of it
+may be policy code", with `review_queue.resolved_at`, declared and unwritten, named as the natural
+mint. That is what was built, between 2026-08-30 and 2026-08-31, and the entry condition was met
+rather than approximated: a resolution writes `resolved_at` once and mints a token bound to the
+key, the body digest, the tool and the recipient domain; the boundary validates and spends it
+before the gate; and `scripts/bridge.py` drove the captured ask payload through the whole path,
+which is the same event as `attempt_send` gaining its first non-test caller. Each bullet of the
+evidence bar in `docs/superpowers/specs/2026-08-30-approval-bridge-design.md` section 6 has its own
+test, and proposal section 15.1's amendment of 2026-08-31 names them and says what each one cost.
+The 2026-08-27 measurement that made this row's priority a matter of evidence rather than argument
+stays on the record there.
+
+1. **Tier from the ladder** (section 15.2). `boundary/` imports `chaperone/gates/ladder.py`,
    declares per-surface ceilings in the topology's data style, and feeds `build_act_context`'s
    `tier` from a constructed `LadderState` rather than a literal. The library's constructor
    refuses a state above its ceiling, so the fleet inherits an unconstructable-overreach property
    instead of building one. Promotion stays driven by nothing until human-review outcomes exist to
    drive it, which is the library's own refusal of self-promotion, inherited deliberately.
    (2026-08-27: queued behind the bridge by dependency - review outcomes begin existing the day
-   the bridge is built.)
-3. **The sliding-window contact limit** (section 15.3). Every touchpoint already carries
+   the bridge is built. 2026-08-31: the bridge is built, so resolutions now exist and carry the
+   reviewer's identity; nothing reads them yet, and this row's shape is unchanged. The dependency
+   is discharged, which is what moved it to the head of the list.)
+2. **The sliding-window contact limit** (section 15.3). Every touchpoint already carries
    `occurred_at`, so a windowed count is one query over recorded data. It retires burst contact
    inside the lifetime cap: a cap of N says nothing about N sends in an afternoon. The windowed
    count is fed explicitly rather than substituted into the lifetime predicate, which would change
    that predicate's meaning without changing its code.
-4. **Contested-quantity rendering** (section 15.4). The contract can hold a conflict and nothing
+3. **Contested-quantity rendering** (section 15.4). The contract can hold a conflict and nothing
    renders one. A brief renderer groups claims by `quantity_key`, shows both values with both
    sources under a Contested marker, badges a single-source quantity as thin support, and holds the
    marker text as a machine-checked contract the way `BLOCK_HEADER` is held. A conflict held in
    data and invisible in prose is arbitration by whoever reads the prose next.
-5. **The weights-update sketch** (section 15.5). It needs an upstream seam first: the staging's
+4. **The weights-update sketch** (section 15.5). It needs an upstream seam first: the staging's
    blend weights are module constants in the imported library, so an update rule needs `rank` to
    accept weights as arguments. That is a library change to request and not a fork to make, since
    a second ranking implementation here would be the reimplementation this repository forbids
@@ -957,7 +1019,7 @@ That last clause is the entry condition, so a row flips to Built on evidence and
    record so the weights have provenance the way the fixtures do. Metrics are reported and never
    asserted: a weights update that had to pass a metric gate would be an eval score promoted to an
    authorization.
-6. **Store unification** (section 15.6). The one row whose argument may be to stay Designed. The
+5. **Store unification** (section 15.6). The one row whose argument may be to stay Designed. The
    imported hash chain is tamper-evidence for gate decisions and the ledger is relationship state,
    and the spec answers why two stores before this row asks whether they should be one.
 
@@ -979,11 +1041,11 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Matching integration + ranking evaluators + OutcomeRecord | **Built (P2)** - `src/retinue/matching/integrate.py`, `src/retinue/evals/ranking.py`, `src/retinue/ledger/outcomes.py` |
 | Block-stripped control | **Built (P2)** - `src/retinue/evals/control.py` |
 | Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The capture ran once (2026-08-12); the verdict set is captured, stamped in its own meta, and replayed by the default lane. Two cases with one under the confidence floor: real-judge evidence at protocol size, not a measurement at scale. |
-| Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. `attempt_send` has no caller outside its own module and its tests, which is stated rather than left to be found. The checker lane, the pre-flight surface and the review queue are reachable only through it, so they have no production caller either. |
+| Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. This cell said `attempt_send` "has no caller outside its own module and its tests" until 2026-08-31, when the approval bridge's `scripts/bridge.py` became the first; the checker lane and the pre-flight surface are reachable only through it, and every escalation still enters the review queue through it, so that one script is now their caller too. The queue gained a second door on the same date, and it is the bridge's own: a human resolution reads a row and writes `resolved_at` beside the chokepoint rather than through it. No agent drives any of them. |
 | Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres, first executed in CI on 2026-08-12, and green on 2026-08-13 and 2026-08-14 (see Lanes). |
 | Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo ran once (2026-08-12): the send tool's offer was asserted in the live session, the conversation send fired the hook's ask, the tool body was reached zero times, and the captured ask is tracked and replayed by `tests/boundary/test_ask_replay.py`. The reason a human is shown for a gated send is now asserted over a hand-authored payload and a captured one. |
 | Intake agent + light turn schema | **Built** - `src/retinue/specialists/intake.py`, `tests/specialists/test_intake.py`, registered in `orchestration/topology.py` and routed in `boundary/hook.py`. The founder-side door of the same desk, declaring `Read` and no outbound tool. **Never executed live from this repository, as of 2026-08-26**: there is no capture script for it here and no run of any kind, so nothing in this tree is evidence about how the prompt behaves. A sibling repository imports `INTAKE_PROMPT` for a live capture, and the light turn schema is that lane's finding rather than this one's: the full-`Draft` output schema failed there under the model's output retries where the three-field turn succeeded. |
-| **Ask-to-chokepoint approval bridge** | **Designed only, and it is the seam the two lanes meet at.** Nothing mints, transports or validates an approval token. `build_act_context` defaults it, the imported check is presence-only, and its violation class is terminal, so a composed system denies every send unless a caller invents a token - which would reduce "a human approved this act" to "the caller passed a non-None string". An SDK permission grant hands the tool body no evidence it can carry, so this is an unanswered design question rather than unwritten wiring. The spec asserted this as sourced until 2026-08-12. |
+| **Ask-to-chokepoint approval bridge** | **Built (2026-08-31)** - `src/retinue/boundary/approvals.py`, `src/retinue/boundary/resolve.py`, the pre-check in `src/retinue/boundary/send_tool.py`, and `scripts/bridge.py`, which is `attempt_send`'s first caller that is not a test. A human resolution writes `review_queue.resolved_at` once, first-writer-wins, and the same call mints a single-use token bound to the act's idempotency key, the body digest, the bare `SEND_TOOL` name and the recipient domain; the boundary validates that binding and spends the token by an append that wins once, before `guarded_call` ever sees it, refusing as `boundary:approval_unverified`, which is deliberately no policy class. This cell read "Designed only, and it is the seam the two lanes meet at. Nothing mints, transports or validates an approval token" until 2026-08-31, and the spec asserted the row as sourced until 2026-08-12. What stays unbuilt is named rather than folded in: no agent drives this path, an SDK permission grant still hands the tool body no evidence it can carry, and whether the hook's "ask" and the chokepoint's token can be one event is unobserved and out of the bridge's own scope. Evidence, bullet by bullet, in `docs/superpowers/specs/2026-08-30-approval-bridge-design.md` section 6: `tests/boundary/test_send_tool_approval.py`, `tests/boundary/test_approvals.py`, `tests/boundary/test_bridge_demo.py`. |
 | **Tier from the ladder decision** | Designed only - `chaperone/gates/ladder.py` ships in the wheel and nothing here imports it. Tier arrives as a bare int parameter. |
 | Contested-quantity rendering + thin-support badge | Designed only - the contract carries `quantity_key` so a conflict can be held, and the prompt instructs the model to group by it, but nothing renders a Contested quantity or a thin-support badge. Annotate-not-arbitrate is the commitment; surfacing the annotation is unbuilt. |
 | Weights-update sketch | Designed - `src/retinue/ledger/outcomes.py` carries the outcome-signal config parameter the sketch would read, and nothing updates a weight or a threshold from a resolved outcome. |

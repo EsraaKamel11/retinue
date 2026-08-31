@@ -109,6 +109,22 @@ body performs no outward act is preserved with its reason: the demo lane's trans
 by design, and what the bridge proves is the path, not a network send. This script is the
 caller that flips the row.
 
+(Amended 2026-08-31, at the build. This section's first sentence said the script "enqueues the
+captured ask payload's handoff into the durable review queue", and it cannot, for a reason that
+is the repository's own rule rather than an implementation difficulty. The queue holds imported
+`Handoff` rows; that type is frozen with `extra=forbid` and every row carries a
+`reason_category` naming what the gate or the boundary concluded. An ask is neither: the hook
+answered "ask" and no predicate refused anything, so enqueueing one would mean inventing a
+category for a demo, inside a script that is not `boundary/` and may not name policy vocabulary
+at all. So in the demo lane the RESOLUTION LOG is the resolution record - review row 1 is the
+identity a durable row would carry, and `MemoryResolutionLog` keys on it exactly as
+`PgResolutionLog` keys on a real row id - and the durable queue is driven by a denial, in
+`test_a_denied_act_would_escalate_to_the_queue_the_boundary_routes_to`, which is a `Handoff` the
+boundary really produces. The queue is wired and shown filling; nothing stands in for the ask.
+The rest of this section is what shipped, with the caller at `scripts/bridge.py`: `demo/` is a
+substring the fixture-provenance guard matches when a test imports a gated script's module, so
+the script lives where this repository's other runnable scripts live and no guard was touched.)
+
 ## 6. Evidence bar
 
 Adopted from the Phase 0 brief verbatim; the row flips on these and never on effort:
