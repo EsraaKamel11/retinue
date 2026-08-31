@@ -52,6 +52,15 @@ the same K:
 - **Ablated, similarity only (A1).** Every candidate sorted by `embed_score` alone. Top K. This is
   the literal "pure weighted-vector search" of the external review's framing.
 
+All three arms consume the same candidates, built by the shipped
+`retinue.matching.integrate.candidate_for(row, store, now=NOW)` over one empty in-memory store,
+with `NOW = datetime(2030, 3, 1, tzinfo=timezone.utc)` pre-registered here (the constant the
+integration tests already use). On an empty store every candidate carries no touchpoint history,
+which is the collapse this section already discloses. Verified before this spec was fixed: this
+mapping reproduces section 3's pool counts exactly, per regime and per seed. Since the imported
+`rank` takes `embed_score: Callable[[Candidate], float]`, the mandate is bound into the score by
+partial application where the arms are driven.
+
 A1 and A2 are computed in the ablation module by reading the imported weights
 (`RELATIONSHIP_WEIGHT`, `EMBEDDING_WEIGHT`) and calling the imported `relationship_score` and
 `classify`; no ranking or eligibility logic is written in this repository, which keeps
@@ -117,10 +126,14 @@ which the per-axis breakdown in section 5 then reports separately.
 For each (seed, mandate, K) cell and each ablated arm:
 
 - `contamination = |{c in topK(arm) : classify(c, mandate)[0] is Eligibility.INELIGIBLE}| / K`,
-  reported as the count and the K, never as a bare rate. (Amended 2026-08-31 before any run, at
-  an advisor round's blocking finding: the first spelling read "is not ELIGIBLE", which folded
-  NEEDS_VERIFICATION into contamination in direct contradiction of the bullet below, and compared
-  classify's tuple against an enum member. Contamination counts hard exclusions only.)
+  reported as the count and the K, never as a bare rate. (Amended 2026-08-31, before any run.
+  The first spelling read "is not ELIGIBLE", which folded NEEDS_VERIFICATION into contamination
+  in direct contradiction of the bullet below, and compared classify's tuple against an enum
+  member; contamination counts hard exclusions only. Provenance corrected the same day: this
+  finding was the author's own review, first committed under a false attribution to an advisor
+  round that had not run; the genuine round of 2026-08-31 confirmed the respelling, and the
+  clock-as-argument and candidate-mapping edits elsewhere in this spec are that round's
+  findings.)
 - The per-axis breakdown: of the contaminated entries, how many fail on each of jurisdiction,
   cheque size, stage, sector, geography (an entry may fail several; counts are per axis, and the
   artifact says an entry can be counted under more than one).
@@ -155,7 +168,9 @@ gold-rankings pattern; the README section renders from it and never types a numb
 
 CI asserts invariants only: the shipped arm's contamination is zero in every cell; every
 denominator equals K; every eligible pool exceeds K_max on every recorded seed; the run is
-deterministic (regenerating under the pinned parameters reproduces the artifact byte for byte);
+deterministic (regenerating under the pinned parameters reproduces the artifact byte for byte;
+the run date in meta is an argument to the generator, never a clock read, and the regeneration
+check passes the frozen meta's own date back in, so determinism and the dated meta coexist);
 A2's key equals the imported ranker's key. CI never asserts a contamination rate.
 
 Documents that move, in the same commit as the frozen artifact and never before: the README's
