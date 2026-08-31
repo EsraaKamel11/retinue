@@ -116,8 +116,11 @@ which the per-axis breakdown in section 5 then reports separately.
 
 For each (seed, mandate, K) cell and each ablated arm:
 
-- `contamination = |{c in topK(arm) : classify(c, mandate) is not ELIGIBLE}| / K`, reported as
-  the count and the K, never as a bare rate.
+- `contamination = |{c in topK(arm) : classify(c, mandate)[0] is Eligibility.INELIGIBLE}| / K`,
+  reported as the count and the K, never as a bare rate. (Amended 2026-08-31 before any run, at
+  an advisor round's blocking finding: the first spelling read "is not ELIGIBLE", which folded
+  NEEDS_VERIFICATION into contamination in direct contradiction of the bullet below, and compared
+  classify's tuple against an enum member. Contamination counts hard exclusions only.)
 - The per-axis breakdown: of the contaminated entries, how many fail on each of jurisdiction,
   cheque size, stage, sector, geography (an entry may fail several; counts are per axis, and the
   artifact says an entry can be counted under more than one).
@@ -144,8 +147,9 @@ harness is permitted and the artifact's meta names the defect.
 ## 7. The artifact, the tests, the documents
 
 `fixtures/ablation/matching_contamination.json`: `meta` (spec path, the generator's pinned digest
-`FROZEN_7_8` from `tests/synth/test_rosters.py` as its identity anchor, the imported library version from the wheel, the score's
-name, run date, command), the pre-registered parameters restated, then per-cell counts with
+`FROZEN_7_8` from `tests/synth/test_rosters.py` as its identity anchor, the imported library version from the wheel and the wheel's
+sha256 beside it (two builds have shared one version in this portfolio before; the hash names
+the build), the score's name, run date, command), the pre-registered parameters restated, then per-cell counts with
 denominators and per-axis breakdowns, then the pooled aggregates. sha256-pinned by a test in the
 gold-rankings pattern; the README section renders from it and never types a number.
 
