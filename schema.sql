@@ -70,8 +70,10 @@ CREATE TABLE IF NOT EXISTS outcomes (
 -- second reviewer of one row writes nothing. The reviewer identity the note below describes is set
 -- in the same statement, and it is the later column this note argued about, arriving by exactly the
 -- route prescribed: the ALTER immediately after this table. The column is deliberately not spelled
--- in this comment - two gates in tests/boundary/test_approvals.py delete the ALTER and require the
--- name to disappear with it, and a comment naming it would make those plants silently vacuous.
+-- in this comment - the ALTER-guard in tests/boundary/test_approvals.py deletes the ALTER and its
+-- plant check sweeps the whole schema text, comments included, so a comment carrying the name
+-- reddens that check loudly (measured); the declared-column parser itself reads only the CREATE
+-- block and the ALTER, so the guard's real assertion is untouched either way.
 CREATE TABLE IF NOT EXISTS review_queue (
     id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     queue_name  TEXT NOT NULL,

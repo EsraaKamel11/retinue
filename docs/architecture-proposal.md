@@ -158,7 +158,7 @@ and a torn-down call is not a call waiting on a human (`hook.py:81-88`).
 `attempt_send` exists to make the library's chokepoint contract survive composition, and its
 internal order is load-bearing (the numbered order list in `send_tool.py`'s module docstring). The
 seven steps below cite that file by NAME rather than by line, the convention step 4 set when it was
-added: this branch's insertions moved every line in the module, which is how the line citations
+added: this branch's insertions moved every line the seven steps cited, which is how the line citations
 these replaced went stale, and a function or constant name survives the next insertion.
 
 1. **The terminal guard runs before input validation.** Validation-first returns a readable error
