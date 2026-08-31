@@ -205,13 +205,21 @@ claimed.** This paragraph read "`attempt_send` is called from its own tests and 
 2026-08-31, and section 15.1 named the flip that would retire it: the approval bridge, whose
 scripted driver `scripts/bridge.py` is now the chokepoint's first caller that is not a test. It
 drives the captured ask payload through a human resolution, the mint, the boundary's
-validate-and-consume and `guarded_call`, so the checker lane and the pre-flight surface - reachable
-only through `attempt_send` - have that one caller too, as does the review queue, which every
-escalation still enters through it. The queue gained a second writer on the same date and it is
-section 15.1's own: the resolution that mints reads a row and sets `resolved_at` beside the
-chokepoint rather than through it, which is why the enqueue claim is now stated as the enqueue and
-not as the table. The README's P3 row and its Designed-vs-Built table carry the same correction,
-dated. What has not changed is the order the
+validate-and-consume and `guarded_call`, so the checker lane, which runs inside `guarded_call`, has
+that one caller too, as does the review queue, which every escalation still enters through
+`attempt_send`. The queue gained a second writer on the same date and it is section 15.1's own: the
+resolution that mints reads a row and sets `resolved_at` beside the chokepoint rather than through
+it, which is why the enqueue claim is now stated as the enqueue and not as the table.
+
+**The pre-flight surface is not downstream of the chokepoint, and the flip does not reach it.** This
+paragraph grouped it with the other two, which cost nothing while `attempt_send` had no caller and
+every zero was the same zero; a caller is exactly what makes the grouping wrong. `send_tool.py` does
+not import `preflight`, `scripts/bridge.py` does not either, and `annotate` and `routes_to_human`
+are imported by `tests/boundary/test_preflight.py` and `tests/specialists/test_conversation.py` and
+by nothing else. The pre-flight surface's non-test caller count is therefore zero, which is a live
+limit of this repository and is stated as one rather than retired by a flip that never touched it.
+The README's P3 row and its Designed-vs-Built table carry the same correction, dated. What has not
+changed is the order the
 design argued for: the boundary lands before the agent it bounds (spec section 9), so the first
 caller is a script an operator runs, and the first AGENT caller is still future work, still out of
 scope, and still named in section 15.
@@ -323,9 +331,12 @@ the session roster uses (`models.py:13-18`).
 **The projection's structural job is feeding the boundary's `ActContext`.** Four of the six
 fields are sourced: `sent_count` from the investor's `sent` touchpoints, consented jurisdictions
 from the identity record, granted tools from the topology roster, the cap from configuration
-(`projection.py:52-64`). The other two - the approval token and the tier - are not sourced, the
-spec's sharpest amendment says so by name (spec section 5.2, amended 2026-08-12), and they are
-two of section 15's six rows. Escalation durability is the queue's job: `DurableQueues.put`
+(`projection.py:52-64`). The other two - the approval token and the tier - are not sourced here, the
+spec's sharpest amendment says so by name (spec section 5.2, amended 2026-08-12), and both were
+section 15 roadmap rows when this was written. One still is, the tier. The approval token's row
+flipped to Built on 2026-08-31, and the field is unchanged by that: it still arrives as a parameter
+rather than being sourced from the ledger, and what changed is that a caller now has a minted token
+to put in it, which the boundary then validates and spends (section 15.1's amendment). Escalation durability is the queue's job: `DurableQueues.put`
 writes the durable row first and the in-process copy second, so a crash between the halves loses
 the copy a restart can rebuild and never the work item; a sink that raises raises out of `put`
 with nothing softened (`review_queue.py:54-56` and the module docstring).
@@ -437,7 +448,8 @@ both.**
 **Live lane** - `RETINUE_LIVE=1`, keyed, manual, never CI. Live runs are capture runs: payloads
 recorded once, stamped with the versions that produced them - asked of the installed binaries,
 never hardcoded (`scripts/demo.py:58-74`) - frozen under `fixtures/`, and replayed forever. The
-three scripts are in three states and the README lists them one by one because the states differ:
+three capture scripts are in three states and the README lists them one by one because the states
+differ:
 the P1 smoke has run and is now frozen, its guard refusing every invocation since the P4 roster
 widened the session it captured; the judge capture ran once on 2026-08-12; the demo ran once the
 same day. All three outputs are tracked, so `tests/boundary/test_ask_replay.py` no longer skips on
@@ -555,7 +567,9 @@ src/retinue/
                   retryable split: malformed retries once, missing-source escalates in
                   one model call - retrying is an invitation to fabricate).
   boundary/       hook.py, send_tool.py (the chokepoint), checker_lane.py, preflight.py,
-                  review_queue.py. The only package that imports chaperone.gates/audit.
+                  review_queue.py, approvals.py (the token stores, the mint, and
+                  validate_and_consume), resolve.py (the one-transaction resolve-and-mint
+                  and the operator CLI). The only package that imports chaperone.gates/audit.
   ledger/         models.py (write barriers), store.py (contract + in-memory reference),
                   postgres.py (adapter; first executed in CI, 2026-08-12), projection.py,
                   block.py, outcomes.py.
@@ -565,7 +579,8 @@ src/retinue/
 tools/            battery.sh, fleet_audit.py - the guards that do not travel in any wheel.
 fixtures/         frozen captures and hand-authored fixtures, one declared provenance each.
 scripts/          capture_smoke.py (frozen), judge_capture.py and demo.py (each ran once,
-                  2026-08-12; their outputs are the frozen fixtures).
+                  2026-08-12; their outputs are the frozen fixtures), and bridge.py, the
+                  approval bridge's caller - keyless, offline, gated by nothing.
 schema.sql        the whole migration story; first executed in CI, 2026-08-12.
 vendor/           the wheel and its provenance.
 ```
@@ -882,9 +897,15 @@ Limits are properties of the system, so they get the same precision as the featu
   evidence. The bridge built in section 15.1 is that path now - a human resolution mints a token
   bound to one body, one key, one tool and one destination, and the boundary spends it once before
   the gate - and `scripts/bridge.py` is the caller. The limit that survives is the headline: the
-  caller is a script an operator runs, no agent has reached the tool body, the checker lane,
-  pre-flight and review queue are still reachable only through `attempt_send`, and the demo's live
-  crossing still stops at the hook's ask above the chokepoint, deliberately. Whether that ask and
+  caller is a script an operator runs, no agent has reached the tool body, the checker lane runs
+  inside `guarded_call` and every escalation still enters the review queue through `attempt_send`,
+  and the demo's live crossing still stops at the hook's ask above the chokepoint, deliberately. Two
+  limits this bullet used to carry by grouping are now stated on their own, because a caller is what
+  made the grouping wrong: the review queue has a second door, the resolution that writes
+  `resolved_at` beside the chokepoint (section 4), and **the pre-flight surface has no non-test
+  caller at all**, since `attempt_send` does not call it and `annotate` is imported by
+  `tests/boundary/test_preflight.py` and `tests/specialists/test_conversation.py` and by nothing
+  else. Whether that ask and
   the chokepoint's token can be one event is unobserved, and it was named out of the bridge's scope
   rather than assumed away.
 - **Numbers over hand-authored fixtures are protocol demonstrations**, one author's, and stay so.

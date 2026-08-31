@@ -608,10 +608,11 @@ version no one had executed this suite on.
 
 Keyed on `RETINUE_PG_DSN`. Unset, it skips with a printed reason. Set, the same
 contract tests run against real Postgres alongside the enforcement tests only a real database can
-earn, five tests: the append-only trigger, the plan assertion that the projection's hot query
-reaches the named index, a separate one that its ORDER BY rides that index rather than a Sort, the
-durable review-queue sink, and one test holding the unique idempotency key and concurrent append
-together, because exactly-one-wins under concurrency is the uniqueness claim under load.
+earn, five of them predating the bridge and its own below them: the append-only trigger, the plan
+assertion that the projection's hot query reaches the named index, a separate one that its ORDER BY
+rides that index rather than a Sort, the durable review-queue sink, and one test holding the unique
+idempotency key and concurrent append together, because exactly-one-wins under concurrency is the
+uniqueness claim under load.
 
 Those two plan assertions were one test until this lane's first execution, which is the whole
 argument for running a lane rather than reading it. It reddened on the Sort clause while its own
@@ -897,11 +898,17 @@ file's run history disagree, the run history is newer and the bullet below carri
   rides a token bound to one body, one key, one tool and one destination, spent once. The headline
   is what did not change: the caller is a script an operator runs, no agent has reached the tool
   body, and the demo's live crossing still stops at the hook's ask, above the chokepoint,
-  deliberately. The checker lane and the pre-flight surface are still reachable only through
-  `attempt_send`, and every escalation still enters the review queue through it, so that one script
-  is the whole of their non-test traffic across the chokepoint. The queue's other door is the
-  bridge's own and is named rather than folded in: a human resolution reads a row and writes
-  `resolved_at` beside the chokepoint, which is the one update [the ledger](#the-ledger) dates.
+  deliberately. The checker lane runs inside `guarded_call` and every escalation still enters the
+  review queue through `attempt_send`, so that one script is the whole of their non-test traffic
+  across the chokepoint. Two things the flip does NOT reach are stated on their own rather than
+  folded into it. The queue's other door is the bridge's own: a human resolution reads a row and
+  writes `resolved_at` beside the chokepoint, which is the one update [the ledger](#the-ledger)
+  dates. And **the pre-flight surface has no non-test caller at all** - `attempt_send` does not call
+  it and `scripts/bridge.py` does not import it, so `annotate` and `routes_to_human` are imported by
+  `tests/boundary/test_preflight.py` and `tests/specialists/test_conversation.py` and by nothing
+  else. This bullet grouped all three surfaces under the chokepoint until 2026-08-31. The grouping
+  cost nothing while the chokepoint had no caller and every zero was the same zero; a caller is
+  exactly what makes it wrong, so the pre-flight surface's own zero is stated here instead.
 - **Numbers over hand-authored fixtures are protocol demonstrations**, one author's, and stay so.
   The one captured crossing is stated at its size above: two cases, one confident verdict, and the
   drafts' ground truth is still one author's labels, so even that figure is a judge read against one
@@ -1041,7 +1048,7 @@ in this file and a row here disagree, the row is the thing that gets corrected.
 | Matching integration + ranking evaluators + OutcomeRecord | **Built (P2)** - `src/retinue/matching/integrate.py`, `src/retinue/evals/ranking.py`, `src/retinue/ledger/outcomes.py` |
 | Block-stripped control | **Built (P2)** - `src/retinue/evals/control.py` |
 | Judge capture + frozen-verdict replay | **Built (P2)** - `scripts/judge_capture.py`, `src/retinue/evals/frozen.py`. The capture ran once (2026-08-12); the verdict set is captured, stamped in its own meta, and replayed by the default lane. Two cases with one under the confidence floor: real-judge evidence at protocol size, not a measurement at scale. |
-| Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. This cell said `attempt_send` "has no caller outside its own module and its tests" until 2026-08-31, when the approval bridge's `scripts/bridge.py` became the first; the checker lane and the pre-flight surface are reachable only through it, and every escalation still enters the review queue through it, so that one script is now their caller too. The queue gained a second door on the same date, and it is the bridge's own: a human resolution reads a row and writes `resolved_at` beside the chokepoint rather than through it. No agent drives any of them. |
+| Drafting agent + chokepoint wiring + pre-flight review | **Built (P3)** - `src/retinue/specialists/drafting.py`, `src/retinue/boundary/send_tool.py`, `src/retinue/boundary/checker_lane.py`, `src/retinue/boundary/preflight.py`. This cell said `attempt_send` "has no caller outside its own module and its tests" until 2026-08-31, when the approval bridge's `scripts/bridge.py` became the first. The checker lane runs inside `guarded_call`, and every escalation still enters the review queue through the chokepoint, so that one script is now their caller too; the queue gained a second door on the same date, and it is the bridge's own, a human resolution reading a row and writing `resolved_at` beside the chokepoint rather than through it. The pre-flight surface is a separate boundary surface that `attempt_send` does not call, and it keeps a limit this cell used to carry by grouping: `annotate` and `routes_to_human` are imported by `tests/boundary/test_preflight.py` and `tests/specialists/test_conversation.py` and by nothing else, so it has no non-test caller at all. No agent drives any of them. |
 | Durable review-queue table (escalation persistence) | **Built (P3)** - `src/retinue/boundary/review_queue.py`, `schema.sql`. The in-memory half is green; the durable half is Postgres, first executed in CI on 2026-08-12, and green on 2026-08-13 and 2026-08-14 (see Lanes). |
 | Conversation agent + live demo | **Built (P4)** - `src/retinue/specialists/conversation.py`, `scripts/demo.py`. The demo ran once (2026-08-12): the send tool's offer was asserted in the live session, the conversation send fired the hook's ask, the tool body was reached zero times, and the captured ask is tracked and replayed by `tests/boundary/test_ask_replay.py`. The reason a human is shown for a gated send is now asserted over a hand-authored payload and a captured one. |
 | Intake agent + light turn schema | **Built** - `src/retinue/specialists/intake.py`, `tests/specialists/test_intake.py`, registered in `orchestration/topology.py` and routed in `boundary/hook.py`. The founder-side door of the same desk, declaring `Read` and no outbound tool. **Never executed live from this repository, as of 2026-08-26**: there is no capture script for it here and no run of any kind, so nothing in this tree is evidence about how the prompt behaves. A sibling repository imports `INTAKE_PROMPT` for a live capture, and the light turn schema is that lane's finding rather than this one's: the full-`Draft` output schema failed there under the model's output retries where the three-field turn succeeded. |
