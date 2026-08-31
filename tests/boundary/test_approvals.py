@@ -991,3 +991,61 @@ def test_the_loser_of_a_double_resolution_mints_nothing_in_the_durable_lane():
     with _pg_conn() as check:
         assert _tokens_for(check, loser) == []            # the loser minted nothing at all
         assert _row_state(check, row_id)[1] == "reviewer-1"
+
+
+def test_the_clis_own_seam_is_atomic_so_a_failed_mint_leaves_the_row_resolvable(monkeypatch):
+    """`main`'s `resolve_fn` closure, pinned by EFFECT rather than by which verb it names.
+
+    The review's I1: the line that makes the shipped operator CLI atomic was executed by no test in
+    either lane. Reverting it to the pre-Task-4 two-connection form left both suites green, because
+    the only other test entering `main` exits 2 above the `import psycopg` line and never builds the
+    closure. So Task 4's headline guarantee could be reverted on the one code path an operator
+    actually uses with every gate still green.
+
+    A HAPPY-PATH TEST WOULD NOT CLOSE THIS, which is why this one is shaped the way it is: the
+    two-connection form also resolves and also mints, so both forms agree on every run where the
+    insert succeeds. What tells them apart is a mint that fails AFTER the resolution is written,
+    which is the single window the transaction exists for.
+
+    The failure is injected into the STATEMENT and never into either verb, and it is patched in BOTH
+    module namespaces - `resolve_pg` binds `INSERT_TOKEN` at import, `PgApprovalStore.put_token`
+    reads its own module global at call time. Patching one would decide the outcome by which form is
+    wired rather than by what the form does. With both patched, whichever one `main` reaches meets
+    the same broken insert, and the only difference left is the transaction: under `resolve_pg` the
+    rollback takes the resolution back out and the row is still there to be resolved, while under
+    two connections the UPDATE has already committed, the row is burned, and the operator's retry
+    exits 1 over a row nobody can ever resolve again.
+    """
+    import psycopg
+    from retinue.boundary import approvals as approvals_module
+    from retinue.boundary import resolve as resolve_module
+
+    dsn = _dsn_or_skip()
+    with _pg_conn() as seed:
+        row_id = _seed_review_row(seed)
+    argv = [str(row_id), "--approve", "--by", "reviewer-1", "--at", "2030-01-02T00:00:00+00:00",
+            "--key", "k-cli", "--tool", "mcp__retinue__send_message", "--dsn", dsn]
+
+    # Valid SQL aimed at a table that is not there, so the insert fails at EXECUTION - after the
+    # resolution has been written, which is the only place the two forms can differ.
+    broken = approvals_module.INSERT_TOKEN.replace("INTO approvals ", "INTO approvals_absent ")
+    assert broken != approvals_module.INSERT_TOKEN, "the injection matched nothing and would test nothing"
+    monkeypatch.setattr(resolve_module, "INSERT_TOKEN", broken)
+    monkeypatch.setattr(approvals_module, "INSERT_TOKEN", broken)
+    with pytest.raises(psycopg.Error):
+        resolve_module.main(argv)
+    monkeypatch.undo()
+
+    with _pg_conn() as check:
+        # The rollback, read through a connection that never saw the failed transaction. This is the
+        # assertion the two-connection form reddens on: it commits the resolution before the insert
+        # is ever attempted, so the row comes back resolved by reviewer-1 with no token to show.
+        assert _row_state(check, row_id) == (None, None)
+
+    # And the consequence an operator actually feels: the retry gets what they asked for, on the
+    # SAME row. Under the reverted closure this is exit 1 against a permanently unresolvable row.
+    assert resolve_module.main(argv) == 0
+    with _pg_conn() as check:
+        assert _row_state(check, row_id)[1] == "reviewer-1"
+        assert len(check.execute("SELECT token FROM approvals WHERE resolution_id = %s",
+                                 (row_id,)).fetchall()) == 1
