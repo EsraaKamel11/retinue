@@ -894,7 +894,7 @@ and the sentence that the shipped arm was zero in all 90 cells.
   invariants, regeneration with the date as argument, documents (Task 4); section 8 constraints
   (global block).
 - Placeholder scan: the one intentional placeholder is `FROZEN_SHA256`'s value, filled in Task 4
-  step 3 from the run and watched red first; no other TBDs.
+  step 3 from the run and watched red first; no other deferred value exists in this plan.
 - Type consistency: `cell_metrics` returns `arms` keyed by `ARMS`; `run_study` and the artifact
   tests read the same keys; `write_study` is the single serializer used by both the script and
   the regeneration test, which is what makes byte-for-byte meaningful.
