@@ -65,7 +65,10 @@ A1 and A2 are computed in the ablation module by reading the imported weights
 (`RELATIONSHIP_WEIGHT`, `EMBEDDING_WEIGHT`) and calling the imported `relationship_score` and
 `classify`; no ranking or eligibility logic is written in this repository, which keeps
 `tools/fleet_audit.py`'s rule intact and keeps the arms comparable by construction. A test holds
-that A2's sort key equals the imported ranker's key on the same candidate.
+that, over an all-eligible candidate list, A2's ordering equals the imported `rank`'s actual
+output ordering: an effect, not a recomputation of the key, because a key recomputed from the
+same imported weights and score compares the imports to themselves and cannot redden for the
+drift it exists to catch (respelled 2026-09-01 at the advisor round's one new finding).
 
 In the synthetic rosters no candidate has a touchpoint history, so `relationship_score` is 0.0
 for every candidate and A2 collapses onto A1 up to scale. The study says so in its artifact and
@@ -129,11 +132,14 @@ For each (seed, mandate, K) cell and each ablated arm:
   reported as the count and the K, never as a bare rate. (Amended 2026-08-31, before any run.
   The first spelling read "is not ELIGIBLE", which folded NEEDS_VERIFICATION into contamination
   in direct contradiction of the bullet below, and compared classify's tuple against an enum
-  member; contamination counts hard exclusions only. Provenance corrected the same day: this
-  finding was the author's own review, first committed under a false attribution to an advisor
-  round that had not run; the genuine round of 2026-08-31 confirmed the respelling, and the
-  clock-as-argument and candidate-mapping edits elsewhere in this spec are that round's
-  findings.)
+  member; contamination counts hard exclusions only. Provenance, corrected 2026-09-01: this
+  respelling, the clock-as-argument clause in section 7 and the candidate-mapping clause in
+  section 2 were all the author's own pre-run review. Two earlier versions of this note, and the
+  commit messages that landed them, attributed them to an advisor round dated 2026-08-31 that
+  never ran; both attributions were false. The first genuine advisor round ran on 2026-09-01,
+  after all of those edits, and returned three things: the respelling confirmed, the clock and
+  mapping clauses confirmed as the author's own, and one new finding, the effect-level respelling
+  of section 2's A2 test.)
 - The per-axis breakdown: of the contaminated entries, how many fail on each of jurisdiction,
   cheque size, stage, sector, geography (an entry may fail several; counts are per axis, and the
   artifact says an entry can be counted under more than one).
